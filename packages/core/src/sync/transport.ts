@@ -43,6 +43,7 @@ export class RelayHttpTransport implements SyncTransport {
   public readonly name = 'RelayHttp';
   private baseUrl: string;
   private fetchFn: typeof fetch;
+  private authToken: string | null = null;
 
   constructor(serverUrl: string, customFetch?: typeof fetch) {
     this.baseUrl = this.normalizeUrl(serverUrl);
@@ -57,6 +58,14 @@ export class RelayHttpTransport implements SyncTransport {
     return this.baseUrl;
   }
 
+  public setAuthToken(token: string | null): void {
+    this.authToken = token;
+  }
+
+  public getAuthToken(): string | null {
+    return this.authToken;
+  }
+
   public async push(payload: TransportPushPayload): Promise<TransportPushResult> {
     if (payload.deltas.length === 0) {
       return { success: true, pushedCount: 0 };
@@ -66,15 +75,21 @@ export class RelayHttpTransport implements SyncTransport {
     }
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (this.authToken) {
+        headers['Authorization'] = `Bearer ${this.authToken}`;
+      }
+
       const res = await this.fetchFn(`${this.baseUrl}/api/sync/push`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           deviceId: payload.deviceId,
           clientCursor: payload.clientCursor,
           deltas: payload.deltas,
         }),
       });
+
 
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
@@ -104,15 +119,21 @@ export class RelayHttpTransport implements SyncTransport {
     }
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (this.authToken) {
+        headers['Authorization'] = `Bearer ${this.authToken}`;
+      }
+
       const res = await this.fetchFn(`${this.baseUrl}/api/sync/pull`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           deviceId: payload.deviceId,
           sinceCursor: payload.sinceCursor,
           limit: payload.limit,
         }),
       });
+
 
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');

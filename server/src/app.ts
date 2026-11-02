@@ -18,11 +18,20 @@ import {
 import { urlMetadataResolver } from './proxy/reader.js';
 import { extensionRegistry } from './registry/extensions.js';
 import { relayStore } from './relay/store.js';
+import { TesseraDatabase } from './db/sqlite.js';
+import { registerAuthRoutes } from './auth/routes.js';
+import { verifyAccessToken } from './auth/jwt.js';
 
-export const buildServer = async () => {
+export interface BuildServerOptions {
+  db?: TesseraDatabase;
+}
+
+export const buildServer = async (options: BuildServerOptions = {}) => {
+  const db = options.db || new TesseraDatabase();
   const app = Fastify({
     logger: false,
   });
+
 
   await app.register(cors, {
     origin: true,
@@ -80,6 +89,9 @@ export const buildServer = async () => {
     timestamp: new Date().toISOString(),
   }));
 
+  // Register Auth Routes
+  registerAuthRoutes(app, db);
+
   // Sync Relay: Push encrypted deltas
   app.post('/api/sync/push', async (request, reply) => {
     const parsed = SyncPushRequestSchema.safeParse(request.body);
@@ -88,6 +100,17 @@ export const buildServer = async () => {
     }
 
     const { deltas } = parsed.data;
+
+    // Check for authenticated user token
+    const authHeader = request.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const payload = verifyAccessToken(authHeader.slice(7).trim());
+      if (payload) {
+        const result = db.appendUserDeltas(payload.sub, deltas);
+        return result;
+      }
+    }
+
     const result = relayStore.appendDeltas(deltas);
     return result;
   });
@@ -100,6 +123,17 @@ export const buildServer = async () => {
     }
 
     const { sinceCursor, limit } = parsed.data;
+
+    // Check for authenticated user token
+    const authHeader = request.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const payload = verifyAccessToken(authHeader.slice(7).trim());
+      if (payload) {
+        const result = db.getUserDeltasSince(payload.sub, sinceCursor, limit);
+        return result;
+      }
+    }
+
     const result = relayStore.getDeltasSince(sinceCursor, limit);
     return result;
   });
@@ -111,11 +145,33 @@ export const buildServer = async () => {
       return reply.badRequest(parsed.error.message);
     }
 
+    const authHeader = request.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const payload = verifyAccessToken(authHeader.slice(7).trim());
+      if (payload) {
+        db.upsertDevice({
+          id: parsed.data.id,
+          userId: payload.sub,
+          name: parsed.data.name,
+          publicKeyHex: parsed.data.publicKey,
+        });
+        return { success: true };
+      }
+    }
+
     relayStore.registerDevice(parsed.data);
     return { success: true };
   });
 
-  app.get('/api/devices', async () => {
+  app.get('/api/devices', async (request) => {
+    const authHeader = request.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const payload = verifyAccessToken(authHeader.slice(7).trim());
+      if (payload) {
+        return { devices: db.listDevicesForUser(payload.sub) };
+      }
+    }
+
     return { devices: relayStore.listDevices() };
   });
 

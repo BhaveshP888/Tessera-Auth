@@ -8,7 +8,9 @@ export type ModalType =
   | 'extension'
   | 'vault-pin'
   | 'vault-settings'
-  | 'command-palette';
+  | 'command-palette'
+  | 'auth'
+  | '2fa-settings';
 
 export interface UIState {
   isSidebarOpen: boolean;
@@ -26,7 +28,7 @@ export interface UIState {
 }
 
 export const useUIStore = create<UIState>()((set) => ({
-  isSidebarOpen: true,
+  isSidebarOpen: typeof window !== 'undefined' ? window.innerWidth > 720 : true,
   viewLayout: 'grid',
   activeModal: null,
   editingBookmark: null,

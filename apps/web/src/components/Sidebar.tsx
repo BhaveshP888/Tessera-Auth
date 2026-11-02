@@ -18,6 +18,7 @@ import type { Collection, Tag } from '@tessera/schemas';
 import { getCollectionColor } from '@tessera/core';
 import { useLibraryStore, useBookmarkCounts } from '../store/useLibraryStore.js';
 import { useUIStore } from '../store/useUIStore.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 
 export interface SidebarProps {
   viewFilter?: 'all' | 'favorites' | 'archived' | 'pinned';
@@ -68,7 +69,15 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
   const storeDeviceId = useLibraryStore((s) => s.deviceId);
 
   const storeIsSidebarOpen = useUIStore((s) => s.isSidebarOpen);
+  const storeSetSidebarOpen = useUIStore((s) => s.setSidebarOpen);
   const storeOpenModal = useUIStore((s) => s.openModal);
+  const isMobile = useIsMobile();
+
+  const closeOnMobile = () => {
+    if (isMobile) {
+      storeSetSidebarOpen(false);
+    }
+  };
 
   // Fallbacks
   const isCollapsed =
@@ -133,6 +142,7 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
     onSelectView('all');
     onSelectCollection(null);
     onSelectTag(null);
+    closeOnMobile();
     if (!isVaultConfigured) {
       onOpenVaultSettingsModal();
     } else if (!isVaultUnlocked) {
@@ -140,7 +150,12 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
     }
   };
 
-  // Compact Icon-Only Sidebar Mode
+  // On mobile devices, collapsed means completely hidden (null)
+  if (isMobile && isCollapsed) {
+    return null;
+  }
+
+  // Compact Icon-Only Sidebar Mode (Desktop / Tablet only)
   if (isCollapsed) {
     return (
       <aside
@@ -388,22 +403,8 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
     );
   }
 
-  // Full Expanded Sidebar Mode
-  return (
-    <aside
-      style={{
-        width: '240px',
-        borderRight: '1px solid var(--border)',
-        background: 'var(--bg-secondary)',
-        display: 'flex',
-        flexDirection: 'column',
-        height: 'calc(100vh - 57px)',
-        overflowY: 'auto',
-        padding: '16px 12px',
-        userSelect: 'none',
-        transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-      }}
-    >
+  const renderNavigationContent = () => (
+    <>
       {/* Primary Navigation */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '20px' }}>
         <button
@@ -412,6 +413,7 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
             onSelectView('all');
             onSelectCollection(null);
             onSelectTag(null);
+            closeOnMobile();
           }}
           style={{
             display: 'flex',
@@ -530,6 +532,7 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
             onSelectView('pinned');
             onSelectCollection(null);
             onSelectTag(null);
+            closeOnMobile();
           }}
           style={{
             display: 'flex',
@@ -553,6 +556,7 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
             onSelectView('favorites');
             onSelectCollection(null);
             onSelectTag(null);
+            closeOnMobile();
           }}
           style={{
             display: 'flex',
@@ -576,6 +580,7 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
             onSelectView('archived');
             onSelectCollection(null);
             onSelectTag(null);
+            closeOnMobile();
           }}
           style={{
             display: 'flex',
@@ -670,6 +675,7 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
                     onSelectSection('library');
                     onSelectCollection(isSelected ? null : col.id);
                     onSelectTag(null);
+                    closeOnMobile();
                   }}
                   style={{
                     display: 'flex',
@@ -807,6 +813,7 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
                     onSelectSection('library');
                     onSelectTag(isSelected ? null : tag.name);
                     onSelectCollection(null);
+                    closeOnMobile();
                   }}
                   style={{
                     padding: '3px 6px',
@@ -865,6 +872,103 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
           {deviceId}
         </span>
       </div>
+    </>
+  );
+
+  // Mobile Drawer Mode
+  if (isMobile) {
+    return (
+      <>
+        {/* Backdrop overlay */}
+        <div
+          className="mobile-sidebar-backdrop"
+          onClick={() => storeSetSidebarOpen(false)}
+        />
+        <aside
+          className="mobile-sidebar-drawer"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '16px 14px',
+            userSelect: 'none',
+            overflowY: 'auto',
+          }}
+        >
+          {/* Mobile Drawer Header */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingBottom: '12px',
+              marginBottom: '14px',
+              borderBottom: '1px solid var(--border)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div
+                style={{
+                  width: '26px',
+                  height: '26px',
+                  borderRadius: '6px',
+                  background: 'var(--surface-elevated)',
+                  border: '1px solid var(--border-hover)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--accent)',
+                }}
+              >
+                <span style={{ fontSize: '14px', fontWeight: 800 }}>T</span>
+              </div>
+              <span style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-0.3px', color: 'var(--text-primary)' }}>
+                Tessera
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => storeSetSidebarOpen(false)}
+              title="Close sidebar"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '30px',
+                height: '30px',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+              }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          {renderNavigationContent()}
+        </aside>
+      </>
+    );
+  }
+
+  // Full Expanded Sidebar Mode (Desktop / Tablet >= 721px)
+  return (
+    <aside
+      style={{
+        width: '240px',
+        borderRight: '1px solid var(--border)',
+        background: 'var(--bg-secondary)',
+        display: 'flex',
+        flexDirection: 'column',
+        height: 'calc(100vh - 57px)',
+        overflowY: 'auto',
+        padding: '16px 12px',
+        userSelect: 'none',
+        transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+      }}
+    >
+      {renderNavigationContent()}
     </aside>
   );
 };

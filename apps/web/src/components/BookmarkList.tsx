@@ -93,7 +93,7 @@ export const BookmarkList: React.FC<BookmarkListProps> = (props) => {
   // Compact List Mode
   if (viewLayout === 'list') {
     return (
-      <div style={{ padding: '16px 28px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      <div className="bookmark-list-container" style={{ padding: '16px 28px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
         {items.map((bookmark) => (
           <BookmarkCard
             key={bookmark.id}
@@ -115,6 +115,7 @@ export const BookmarkList: React.FC<BookmarkListProps> = (props) => {
   // Modern Responsive Grid Mode
   return (
     <div
+      className="bookmark-grid-container"
       style={{
         padding: '20px 28px',
         display: 'grid',

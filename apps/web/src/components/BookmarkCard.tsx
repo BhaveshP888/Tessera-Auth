@@ -145,7 +145,7 @@ export const BookmarkCard: React.FC<BookmarkCardProps> = (props) => {
             ))}
 
             {/* Quick Actions (Hover) */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', opacity: isHovered ? 1 : 0.75, transition: 'opacity 0.15s ease', zIndex: 5 }}>
+            <div className="bookmark-card-actions" style={{ display: 'flex', alignItems: 'center', gap: '2px', opacity: isHovered ? 1 : 0.75, transition: 'opacity 0.15s ease', zIndex: 5 }}>
             <button
               type="button"
               onClick={(e) => {
@@ -288,7 +288,7 @@ export const BookmarkCard: React.FC<BookmarkCardProps> = (props) => {
               (e.target as HTMLElement).style.display = 'none';
             }}
           />
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px' }}>
             {domain}
           </span>
           {bookmark.isPinned && (
@@ -324,7 +324,7 @@ export const BookmarkCard: React.FC<BookmarkCardProps> = (props) => {
         </div>
 
           {/* Action icons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '2px', opacity: isHovered ? 1 : 0.85, transition: 'opacity 0.15s ease', zIndex: 5 }}>
+        <div className="bookmark-card-actions" style={{ display: 'flex', alignItems: 'center', gap: '2px', opacity: isHovered ? 1 : 0.85, transition: 'opacity 0.15s ease', zIndex: 5 }}>
           <button
             type="button"
             onClick={(e) => {
