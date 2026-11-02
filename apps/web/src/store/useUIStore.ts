@@ -8,7 +8,9 @@ export type ModalType =
   | 'extension'
   | 'vault-pin'
   | 'vault-settings'
-  | 'command-palette';
+  | 'command-palette'
+  | 'auth'
+  | '2fa-settings';
 
 export interface UIState {
   isSidebarOpen: boolean;

@@ -24,6 +24,11 @@ export const AuditEventTypeSchema = z.enum([
   'vault_wiped',
   'vault_sync_enabled',
   'vault_sync_disabled',
+  'auth_register',
+  'auth_login',
+  'auth_logout',
+  'auth_2fa_enabled',
+  'auth_2fa_disabled',
 ]);
 export type AuditEventType = z.infer<typeof AuditEventTypeSchema>;
 

@@ -6,6 +6,7 @@ import type {
   Tag,
   UpdateBookmarkInput,
   VaultConfig,
+  User,
 } from '@tessera/schemas';
 import {
   base64ToUint8Array,
@@ -13,6 +14,9 @@ import {
   generateMasterKey,
   uint8ArrayToBase64,
   unsealRecord,
+  deriveAuthAndEncryptionKeys,
+  wrapMasterKey,
+  unwrapMasterKey,
 } from '../crypto/index.js';
 import { VaultSessionManager } from '../crypto/vault-session.js';
 import {
@@ -23,7 +27,7 @@ import {
 import { MutationLog } from './mutation-log.js';
 import { RelayHttpTransport, type SyncTransport } from '../sync/transport.js';
 
-export type { GistConfig, VaultConfig };
+export type { GistConfig, VaultConfig, User };
 
 export type VaultUnlockResult =
   | { success: true }
@@ -182,6 +186,8 @@ export class LocalStoreEngine {
 
   private vaultConfig: VaultConfig = { ...DEFAULT_VAULT_CONFIG };
   private autoLockTimer: ReturnType<typeof setTimeout> | null = null;
+  private authToken: string | null = null;
+  private authUser: User | null = null;
 
   public readonly vaultSession = new VaultSessionManager();
   private subscribers = new Set<() => void>();
@@ -223,6 +229,14 @@ export class LocalStoreEngine {
     const initialTombstones = this.safeJsonParse<Record<string, string>>('deletedTombstones', {});
     this.mutationLog = new MutationLog(initialTombstones);
     this.loadPersistedState();
+
+    // 4. Restore Auth State
+    const savedToken = this.storage.getItem(`${this.prefix}authToken`);
+    if (savedToken) {
+      this.authToken = savedToken;
+      this.relayTransport.setAuthToken(savedToken);
+    }
+    this.authUser = this.safeJsonParse<User | null>('authUser', null);
   }
 
   private safeJsonParse<T>(key: string, fallback: T): T {
@@ -690,6 +704,391 @@ export class LocalStoreEngine {
 
   public setSyncServerUrl(url: string): void {
     this.relayTransport.setServerUrl(url);
+  }
+
+  // --- Authentication Seam ---
+
+  public getAuthToken(): string | null {
+    return this.authToken;
+  }
+
+  public getAuthUser(): User | null {
+    return this.authUser ? { ...this.authUser } : null;
+  }
+
+  public setAuthToken(token: string | null): void {
+    this.authToken = token;
+    this.relayTransport.setAuthToken(token);
+    if (token) {
+      this.storage.setItem(`${this.prefix}authToken`, token);
+    } else {
+      this.storage.removeItem(`${this.prefix}authToken`);
+    }
+  }
+
+  public setAuthUser(user: User | null): void {
+    this.authUser = user;
+    if (user) {
+      this.persist('authUser', user);
+    } else {
+      this.storage.removeItem(`${this.prefix}authUser`);
+    }
+  }
+
+  public async registerAccount(
+    email: string,
+    password: string,
+    deviceName?: string,
+    pbkdf2Rounds?: number,
+  ): Promise<{ success: boolean; user?: User; error?: string }> {
+    const serverUrl = this.getSyncServerUrl();
+    if (!serverUrl) {
+      return { success: false, error: 'Sync server URL is not configured' };
+    }
+
+    try {
+      const { authKeyHash, encKey } = deriveAuthAndEncryptionKeys(email, password, pbkdf2Rounds);
+      const envelope = wrapMasterKey(this.masterKey, encKey);
+
+      const fetchFn = (this.relayTransport as any).fetchFn || globalThis.fetch;
+      const res = await fetchFn(`${serverUrl}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          authKeyHash,
+          wrappedMasterKey: envelope.wrappedMasterKey,
+          wrappedMasterKeyNonce: envelope.wrappedMasterKeyNonce,
+          deviceId: this.deviceId,
+          deviceName,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        return { success: false, error: errData.error || `Registration failed with status ${res.status}` };
+      }
+
+      const data = await res.json();
+      this.setAuthToken(data.accessToken);
+      this.setAuthUser(data.user);
+      if (data.refreshToken) {
+        this.storage.setItem(`${this.prefix}refreshToken`, data.refreshToken);
+      }
+
+      // Initial sync
+      await this.sync(true).catch(() => {});
+      this.notify();
+
+      return { success: true, user: data.user };
+    } catch (err) {
+      return { success: false, error: (err as Error).message || 'Registration request failed' };
+    }
+  }
+
+  public async loginAccount(
+    email: string,
+    password: string,
+    deviceName?: string,
+    pbkdf2Rounds?: number,
+  ): Promise<{
+    success: boolean;
+    requires2FA?: boolean;
+    challengeToken?: string;
+    user?: User;
+    error?: string;
+  }> {
+    const serverUrl = this.getSyncServerUrl();
+    if (!serverUrl) {
+      return { success: false, error: 'Sync server URL is not configured' };
+    }
+
+    try {
+      const { authKeyHash, encKey } = deriveAuthAndEncryptionKeys(email, password, pbkdf2Rounds);
+      const fetchFn = (this.relayTransport as any).fetchFn || globalThis.fetch;
+
+      const res = await fetchFn(`${serverUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          authKeyHash,
+          deviceId: this.deviceId,
+          deviceName,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        return { success: false, error: errData.error || `Login failed with status ${res.status}` };
+      }
+
+      const data = await res.json();
+
+      if (data.requires2FA) {
+        return {
+          success: true,
+          requires2FA: true,
+          challengeToken: data.challengeToken,
+        };
+      }
+
+      // Unwrap and install remote Master Key
+      if (data.wrappedMasterKey && data.wrappedMasterKeyNonce) {
+        const unwrapRes = unwrapMasterKey(data.wrappedMasterKey, data.wrappedMasterKeyNonce, encKey);
+        if (unwrapRes.masterKey) {
+          this.setMasterKey(uint8ArrayToBase64(unwrapRes.masterKey));
+        } else {
+          return { success: false, error: `Failed to decrypt master key: ${unwrapRes.error}` };
+        }
+      }
+
+      this.setAuthToken(data.accessToken);
+      this.setAuthUser(data.user);
+      if (data.refreshToken) {
+        this.storage.setItem(`${this.prefix}refreshToken`, data.refreshToken);
+      }
+
+      // Initial sync
+      await this.sync(false).catch(() => {});
+      this.notify();
+
+      return { success: true, user: data.user };
+    } catch (err) {
+      return { success: false, error: (err as Error).message || 'Login request failed' };
+    }
+  }
+
+  public async verify2FALogin(
+    challengeToken: string,
+    code: string,
+    email: string,
+    password: string,
+    pbkdf2Rounds?: number,
+  ): Promise<{ success: boolean; user?: User; error?: string }> {
+    const serverUrl = this.getSyncServerUrl();
+    if (!serverUrl) {
+      return { success: false, error: 'Sync server URL is not configured' };
+    }
+
+    try {
+      const fetchFn = (this.relayTransport as any).fetchFn || globalThis.fetch;
+      const res = await fetchFn(`${serverUrl}/api/auth/2fa/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          challengeToken,
+          code,
+          deviceId: this.deviceId,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        return { success: false, error: errData.error || '2FA verification failed' };
+      }
+
+      const data = await res.json();
+      const { encKey } = deriveAuthAndEncryptionKeys(email, password, pbkdf2Rounds);
+
+      if (data.wrappedMasterKey && data.wrappedMasterKeyNonce) {
+        const unwrapRes = unwrapMasterKey(data.wrappedMasterKey, data.wrappedMasterKeyNonce, encKey);
+        if (unwrapRes.masterKey) {
+          this.setMasterKey(uint8ArrayToBase64(unwrapRes.masterKey));
+        } else {
+          return { success: false, error: `Failed to decrypt master key: ${unwrapRes.error}` };
+        }
+      }
+
+      this.setAuthToken(data.accessToken);
+      this.setAuthUser(data.user);
+      if (data.refreshToken) {
+        this.storage.setItem(`${this.prefix}refreshToken`, data.refreshToken);
+      }
+
+      await this.sync(false).catch(() => {});
+      this.notify();
+
+      return { success: true, user: data.user };
+    } catch (err) {
+      return { success: false, error: (err as Error).message || '2FA verification request failed' };
+    }
+  }
+
+  public async logoutAccount(): Promise<void> {
+    const serverUrl = this.getSyncServerUrl();
+    const refreshToken = this.storage.getItem(`${this.prefix}refreshToken`);
+
+    if (serverUrl) {
+      try {
+        const fetchFn = (this.relayTransport as any).fetchFn || globalThis.fetch;
+        await fetchFn(`${serverUrl}/api/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {}),
+          },
+          body: JSON.stringify({ refreshToken }),
+        });
+      } catch {}
+    }
+
+    this.setAuthToken(null);
+    this.setAuthUser(null);
+    this.storage.removeItem(`${this.prefix}refreshToken`);
+    this.notify();
+  }
+
+  public async setup2FA(): Promise<{
+    success: boolean;
+    data?: { secret: string; otpauthUri: string; backupCodes: string[] };
+    error?: string;
+  }> {
+    const serverUrl = this.getSyncServerUrl();
+    if (!serverUrl || !this.authToken) {
+      return { success: false, error: 'Not authenticated or server URL missing' };
+    }
+
+    try {
+      const fetchFn = (this.relayTransport as any).fetchFn || globalThis.fetch;
+      const res = await fetchFn(`${serverUrl}/api/auth/2fa/setup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.authToken}`,
+        },
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        return { success: false, error: errData.error || 'Failed to setup 2FA' };
+      }
+
+      const data = await res.json();
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, error: (err as Error).message || '2FA setup request failed' };
+    }
+  }
+
+  public async enable2FA(
+    secret: string,
+    code: string,
+    backupCodes: string[],
+  ): Promise<{ success: boolean; error?: string }> {
+    const serverUrl = this.getSyncServerUrl();
+    if (!serverUrl || !this.authToken) {
+      return { success: false, error: 'Not authenticated or server URL missing' };
+    }
+
+    try {
+      const fetchFn = (this.relayTransport as any).fetchFn || globalThis.fetch;
+      const res = await fetchFn(`${serverUrl}/api/auth/2fa/enable`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.authToken}`,
+        },
+        body: JSON.stringify({ secret, code, backupCodes }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        return { success: false, error: errData.error || 'Failed to enable 2FA' };
+      }
+
+      if (this.authUser) {
+        this.setAuthUser({ ...this.authUser, totpEnabled: true });
+      }
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: (err as Error).message || '2FA enable request failed' };
+    }
+  }
+
+  public async disable2FA(code: string): Promise<{ success: boolean; error?: string }> {
+    const serverUrl = this.getSyncServerUrl();
+    if (!serverUrl || !this.authToken) {
+      return { success: false, error: 'Not authenticated or server URL missing' };
+    }
+
+    try {
+      const fetchFn = (this.relayTransport as any).fetchFn || globalThis.fetch;
+      const res = await fetchFn(`${serverUrl}/api/auth/2fa/disable`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.authToken}`,
+        },
+        body: JSON.stringify({ code }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        return { success: false, error: errData.error || 'Failed to disable 2FA' };
+      }
+
+      if (this.authUser) {
+        this.setAuthUser({ ...this.authUser, totpEnabled: false });
+      }
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: (err as Error).message || '2FA disable request failed' };
+    }
+  }
+
+  public async checkAuthSession(): Promise<{ success: boolean; user?: User; error?: string }> {
+    const serverUrl = this.getSyncServerUrl();
+    if (!serverUrl || !this.authToken) {
+      return { success: false, error: 'No active session' };
+    }
+
+    try {
+      const fetchFn = (this.relayTransport as any).fetchFn || globalThis.fetch;
+      const res = await fetchFn(`${serverUrl}/api/auth/me`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${this.authToken}`,
+        },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        this.setAuthUser(data.user);
+        return { success: true, user: data.user };
+      }
+
+      const refreshToken = this.storage.getItem(`${this.prefix}refreshToken`);
+      if (res.status === 401 && refreshToken) {
+        const refreshRes = await fetchFn(`${serverUrl}/api/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json();
+          this.setAuthToken(refreshData.accessToken);
+          if (refreshData.refreshToken) {
+            this.storage.setItem(`${this.prefix}refreshToken`, refreshData.refreshToken);
+          }
+          const profileRes = await fetchFn(`${serverUrl}/api/auth/me`, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${refreshData.accessToken}` },
+          });
+          if (profileRes.ok) {
+            const profileData = await profileRes.json();
+            this.setAuthUser(profileData.user);
+            return { success: true, user: profileData.user };
+          }
+        }
+      }
+
+      await this.logoutAccount();
+      return { success: false, error: 'Session expired' };
+    } catch (err) {
+      return { success: false, error: (err as Error).message || 'Session verification failed' };
+    }
   }
 
   // --- Mutation Operations ---

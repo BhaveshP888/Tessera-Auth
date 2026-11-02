@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
   Search,
   Plus,
@@ -10,12 +10,16 @@ import {
   List as ListIcon,
   Command,
   PanelLeft,
+  User as UserIcon,
+  LogOut,
+  ShieldCheck,
+  ChevronDown,
 } from 'lucide-react';
 import { useLibraryStore } from '../store/useLibraryStore.js';
 import { useUIStore } from '../store/useUIStore.js';
+import { useAuthStore } from '../store/useAuthStore.js';
 
 export interface HeaderProps {
-  // All props are now optional for backward compatibility
   searchQuery?: string;
   onSearchChange?: (query: string) => void;
   onOpenAddModal?: () => void;
@@ -50,6 +54,13 @@ export const Header: React.FC<HeaderProps> = (props) => {
   const storeOpenModal = useUIStore((s) => s.openModal);
   const storeOpenAddBookmarkModal = useUIStore((s) => s.openAddBookmarkModal);
 
+  const user = useAuthStore((s) => s.user);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const logout = useAuthStore((s) => s.logout);
+
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+
   // Resolved values (store takes precedence, props used as fallbacks)
   const searchQuery = props.searchQuery !== undefined ? props.searchQuery : storeSearchQuery;
   const onSearchChange = props.onSearchChange || storeSetSearchQuery;
@@ -70,6 +81,19 @@ export const Header: React.FC<HeaderProps> = (props) => {
   const onSync = props.onSync || (() => storePerformSync());
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Close account dropdown on outside click
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(e.target as Node)) {
+        setIsAccountMenuOpen(false);
+      }
+    };
+    if (isAccountMenuOpen) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [isAccountMenuOpen]);
 
   // Global hotkeys ('/' to focus search, 'Cmd+K' / 'Ctrl+K' for command palette)
   useEffect(() => {
@@ -363,6 +387,194 @@ export const Header: React.FC<HeaderProps> = (props) => {
         >
           <Key size={14} />
         </button>
+
+        {/* Account Auth Pill */}
+        <div style={{ position: 'relative' }} ref={accountMenuRef}>
+          {isAuthenticated && user ? (
+            <button
+              onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}
+              title={`Logged in as ${user.email}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 8px',
+                borderRadius: 'var(--radius-sm)',
+                background: isAccountMenuOpen ? 'var(--surface-active)' : 'var(--surface)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-primary)',
+                fontSize: '12px',
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              <div
+                style={{
+                  width: '20px',
+                  height: '20px',
+                  borderRadius: '50%',
+                  background: 'var(--accent)',
+                  color: 'var(--accent-contrast)',
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {user.email.charAt(0).toUpperCase()}
+              </div>
+              <span
+                style={{
+                  maxWidth: '110px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {user.email.split('@')[0]}
+              </span>
+              {user.totpEnabled && (
+                <ShieldCheck size={12} style={{ color: 'var(--green)', flexShrink: 0 }} />
+              )}
+              <ChevronDown size={11} style={{ color: 'var(--text-muted)' }} />
+            </button>
+          ) : (
+            <button
+              onClick={() => storeOpenModal('auth')}
+              title="Sign in or register for zero-knowledge cross-device sync"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '6px 10px',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-secondary)',
+                fontSize: '12px',
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              <UserIcon size={13} />
+              <span>Sign In</span>
+            </button>
+          )}
+
+          {/* Account Dropdown Popover */}
+          {isAccountMenuOpen && user && (
+            <div
+              className="animate-fade"
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 6px)',
+                right: 0,
+                width: '230px',
+                background: 'var(--surface-elevated)',
+                border: '1px solid var(--border-hover)',
+                borderRadius: 'var(--radius-md)',
+                boxShadow: 'var(--shadow-lg)',
+                padding: '6px',
+                zIndex: 40,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px',
+              }}
+            >
+              {/* Profile summary */}
+              <div
+                style={{
+                  padding: '8px 10px',
+                  borderBottom: '1px solid var(--border)',
+                  marginBottom: '4px',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: '12.5px',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {user.email}
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    marginTop: '3px',
+                    fontSize: '10.5px',
+                    color: user.totpEnabled ? 'var(--green)' : 'var(--text-muted)',
+                  }}
+                >
+                  <ShieldCheck size={11} />
+                  <span>{user.totpEnabled ? '2FA Enabled' : '2FA Not Configured'}</span>
+                </div>
+              </div>
+
+              {/* 2FA Settings button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAccountMenuOpen(false);
+                  storeOpenModal('2fa-settings');
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 10px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-primary)',
+                  fontSize: '12px',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  width: '100%',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-hover)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              >
+                <Shield size={13} style={{ color: 'var(--accent)' }} />
+                <span>Two-Factor Security</span>
+              </button>
+
+              {/* Logout button */}
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsAccountMenuOpen(false);
+                  await logout();
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 10px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#f87171',
+                  fontSize: '12px',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  width: '100%',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              >
+                <LogOut size={13} />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* New Bookmark Button */}
         <button

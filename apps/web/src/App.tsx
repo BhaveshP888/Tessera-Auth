@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useLibraryStore, useFilteredBookmarks } from './store/useLibraryStore.js';
 import { useUIStore } from './store/useUIStore.js';
+import { useAuthStore } from './store/useAuthStore.js';
 import { Header } from './components/Header.js';
 import { Sidebar } from './components/Sidebar.js';
 import { BookmarkList } from './components/BookmarkList.js';
@@ -11,6 +12,8 @@ import { ExtensionManagerModal } from './components/ExtensionManagerModal.js';
 import { VaultPinModal } from './components/VaultPinModal.js';
 import { VaultSettingsModal } from './components/VaultSettingsModal.js';
 import { CommandPalette } from './components/CommandPalette.js';
+import { AuthModal } from './components/AuthModal.js';
+import { TwoFactorSettingsModal } from './components/TwoFactorSettingsModal.js';
 import { Lock, Shield, KeyRound } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -25,6 +28,12 @@ export const App: React.FC = () => {
   const searchQuery = useLibraryStore((s) => s.searchQuery);
 
   const openModal = useUIStore((s) => s.openModal);
+  const checkSession = useAuthStore((s) => s.checkSession);
+
+  // Restore authenticated session on mount if token exists
+  useEffect(() => {
+    checkSession().catch(() => {});
+  }, [checkSession]);
 
   const filteredBookmarks = useFilteredBookmarks();
   const isViewingVault = activeSection === 'vault';
@@ -200,6 +209,8 @@ export const App: React.FC = () => {
       <ExtensionManagerModal />
       <VaultPinModal />
       <VaultSettingsModal />
+      <AuthModal />
+      <TwoFactorSettingsModal />
     </div>
   );
 };

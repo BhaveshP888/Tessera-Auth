@@ -4,9 +4,13 @@ import {
   CreateBookmarkInputSchema,
   ExtensionManifestSchema,
   SyncDeltaSchema,
+  RegisterRequestSchema,
+  LoginRequestSchema,
+  Verify2FARequestSchema,
 } from '../src/index.js';
 
 describe('Schemas', () => {
+
   it('validates a correct bookmark entity', () => {
     const valid = {
       id: 'd9b2d63d-a23d-4c3e-9f37-123456789abc',
@@ -78,4 +82,31 @@ describe('Schemas', () => {
     const parsed = SyncDeltaSchema.parse(delta);
     expect(parsed.lamportTs).toBe(42);
   });
+
+  it('validates auth registration and login schemas', () => {
+    const reg = RegisterRequestSchema.parse({
+      email: '  Alice@EXAMPLE.COM ',
+      authKeyHash: 'a'.repeat(64),
+      wrappedMasterKey: 'bWFrZXIy...blob',
+      wrappedMasterKeyNonce: 'bm9uY2U=',
+      deviceId: 'device-123',
+    });
+    expect(reg.email).toBe('alice@example.com');
+    expect(reg.authKeyHash).toHaveLength(64);
+
+    const login = LoginRequestSchema.parse({
+      email: 'Bob@Example.com',
+      authKeyHash: 'b'.repeat(64),
+      deviceId: 'device-456',
+    });
+    expect(login.email).toBe('bob@example.com');
+
+    const verify2fa = Verify2FARequestSchema.parse({
+      challengeToken: 'token.123.abc',
+      code: ' 123 456 ',
+      deviceId: 'device-456',
+    });
+    expect(verify2fa.code).toBe('123456');
+  });
 });
+
