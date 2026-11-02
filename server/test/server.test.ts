@@ -114,31 +114,48 @@ describe('Server Relay & Proxy', () => {
   }, 15_000);
 
   it('serves static JavaScript assets with application/javascript MIME type and not text/html fallback', async () => {
-    const app = await buildServer();
-    let sampleJsPath = '/assets/index.js';
     const assetsDir = path.resolve(process.cwd(), 'apps/web/dist/assets');
-    if (fs.existsSync(assetsDir)) {
-      const files = fs.readdirSync(assetsDir);
-      const jsFile = files.find((f) => f.endsWith('.js'));
-      if (jsFile) {
-        sampleJsPath = `/assets/${jsFile}`;
-      }
+    const didExist = fs.existsSync(assetsDir);
+    let fixtureCreated = false;
+    let fixtureFile = '';
+
+    if (!didExist) {
+      fs.mkdirSync(assetsDir, { recursive: true });
+      fixtureFile = path.join(assetsDir, 'index-bundle.js');
+      fs.writeFileSync(fixtureFile, 'console.log("tessera");', 'utf8');
+      fixtureCreated = true;
     }
 
-    const res = await app.inject({
-      method: 'GET',
-      url: sampleJsPath,
-    });
+    try {
+      const app = await buildServer();
+      const files = fs.readdirSync(assetsDir);
+      const jsFile = files.find((f) => f.endsWith('.js')) || 'index-bundle.js';
+      const sampleJsPath = `/assets/${jsFile}`;
 
-    expect(res.statusCode).toBe(200);
-    const contentType = res.headers['content-type'] || '';
-    expect(contentType).toContain('javascript');
+      const res = await app.inject({
+        method: 'GET',
+        url: sampleJsPath,
+      });
 
-    // Missing assets must return 404 and NOT fallback to index.html with text/html
-    const missingAssetRes = await app.inject({
-      method: 'GET',
-      url: '/assets/non-existent-bundle.js',
-    });
-    expect(missingAssetRes.statusCode).toBe(404);
+      expect(res.statusCode).toBe(200);
+      const contentType = res.headers['content-type'] || '';
+      expect(contentType).toContain('javascript');
+
+      // Missing assets must return 404 and NOT fallback to index.html with text/html
+      const missingAssetRes = await app.inject({
+        method: 'GET',
+        url: '/assets/non-existent-bundle.js',
+      });
+      expect(missingAssetRes.statusCode).toBe(404);
+    } finally {
+      if (fixtureCreated) {
+        if (fixtureFile && fs.existsSync(fixtureFile)) {
+          fs.unlinkSync(fixtureFile);
+        }
+        if (!didExist && fs.existsSync(path.resolve(process.cwd(), 'apps/web/dist'))) {
+          fs.rmSync(path.resolve(process.cwd(), 'apps/web/dist'), { recursive: true, force: true });
+        }
+      }
+    }
   });
 });

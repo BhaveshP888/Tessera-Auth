@@ -34,11 +34,11 @@ jobs:
       - name: Type check (all packages)
         run: bun run typecheck
 
+      - name: Build Monorepo (Apps & Packages)
+        run: bun run build
+
       - name: Run Test Suite (Crypto, Auth & Sync)
         run: bun test
         env:
           NODE_ENV: test
           AUTH_SECRET: 'ci-test-jwt-hmac-sha256-secret-min-32-chars-long'
-
-      - name: Build Monorepo (Apps & Packages)
-        run: bun run build
