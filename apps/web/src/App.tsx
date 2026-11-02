@@ -45,7 +45,7 @@ export const App: React.FC = () => {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Sidebar />
 
-        <main style={{ flex: 1, overflowY: 'auto', maxHeight: 'calc(100vh - 57px)' }}>
+        <main style={{ flex: 1, overflowY: 'auto', maxHeight: 'calc(100vh - 57px)', width: '100%', minWidth: 0 }}>
           {/* Vault locked hero state */}
           {isViewingVault && !isVaultUnlocked ? (
             <div
@@ -128,6 +128,7 @@ export const App: React.FC = () => {
             <>
               {/* View summary header */}
               <div
+                className="view-summary-header"
                 style={{
                   padding: '16px 28px 4px 28px',
                   display: 'flex',

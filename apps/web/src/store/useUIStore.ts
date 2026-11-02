@@ -28,7 +28,7 @@ export interface UIState {
 }
 
 export const useUIStore = create<UIState>()((set) => ({
-  isSidebarOpen: true,
+  isSidebarOpen: typeof window !== 'undefined' ? window.innerWidth > 720 : true,
   viewLayout: 'grid',
   activeModal: null,
   editingBookmark: null,
