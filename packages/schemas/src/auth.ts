@@ -12,8 +12,17 @@ export const UserSchema = z.object({
 export type User = z.infer<typeof UserSchema>;
 
 /**
+ * Request to send an Email OTP for registration or verification.
+ */
+export const SendOtpRequestSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  purpose: z.enum(['registration', 'password_reset']).default('registration'),
+});
+export type SendOtpRequest = z.infer<typeof SendOtpRequestSchema>;
+
+/**
  * Account registration request.
- * Contains client-derived authKeyHash and the wrapped Master Key.
+ * Contains client-derived authKeyHash, the wrapped Master Key, and the verified email OTP.
  */
 export const RegisterRequestSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
@@ -22,6 +31,7 @@ export const RegisterRequestSchema = z.object({
   wrappedMasterKeyNonce: z.string().min(1), // 24-byte nonce
   deviceId: z.string().min(1),
   deviceName: z.string().min(1).max(100).optional(),
+  otpCode: z.string().length(6), // 6-digit numeric email verification code
 });
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
 

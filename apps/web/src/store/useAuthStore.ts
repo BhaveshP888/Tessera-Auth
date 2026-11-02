@@ -24,9 +24,13 @@ export interface AuthState {
   twoFactorSetupData: TwoFactorSetupData | null;
 
   // Actions
+  sendRegistrationOtp: (
+    email: string,
+  ) => Promise<{ success: boolean; message?: string; devOtp?: string; error?: string }>;
   register: (
     email: string,
     password: string,
+    otpCode: string,
     deviceName?: string,
   ) => Promise<{ success: boolean; error?: string }>;
   login: (
@@ -75,10 +79,23 @@ export const useAuthStore = create<AuthState>()((set, get) => {
     tempPassword: null,
     twoFactorSetupData: null,
 
-    register: async (email: string, password: string, deviceName?: string) => {
+    sendRegistrationOtp: async (email: string) => {
       set({ isLoading: true, error: null });
       try {
-        const result = await engine.registerAccount(email, password, deviceName);
+        const result = await engine.sendRegistrationOtp(email);
+        set({ isLoading: false, error: result.error || null });
+        return result;
+      } catch (err) {
+        const message = (err as Error).message || 'Failed to send verification code';
+        set({ isLoading: false, error: message });
+        return { success: false, error: message };
+      }
+    },
+
+    register: async (email: string, password: string, otpCode: string, deviceName?: string) => {
+      set({ isLoading: true, error: null });
+      try {
+        const result = await engine.registerAccount(email, password, otpCode, deviceName);
         if (!result.success || !result.user) {
           set({ isLoading: false, error: result.error || 'Registration failed' });
           return { success: false, error: result.error || 'Registration failed' };

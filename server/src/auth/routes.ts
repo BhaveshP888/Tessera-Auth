@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import crypto from 'node:crypto';
 import {
   RegisterRequestSchema,
+  SendOtpRequestSchema,
   LoginRequestSchema,
   Verify2FARequestSchema,
   Enable2FARequestSchema,
@@ -25,6 +26,7 @@ import {
   hashRefreshToken,
 } from './jwt.js';
 import { hashAuthKey, verifyAuthKey } from './hash.js';
+import { sendVerificationEmail } from './mailer.js';
 
 export interface AuthContext {
   userId: string;
@@ -59,6 +61,56 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     };
   };
 
+  // 0. Send Email Verification OTP
+  app.post('/api/auth/register/send-otp', async (request, reply) => {
+    const parsed = SendOtpRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.message });
+    }
+
+    const { email, purpose } = parsed.data;
+
+    // Check existing email
+    const existing = db.getUserByEmail(email);
+    if (existing) {
+      return reply.status(409).send({ error: 'An account with this email already exists.' });
+    }
+
+    // Rate-limit resend cooldown (60 seconds)
+    const existingOtp = db.getEmailOtp(email);
+    if (existingOtp) {
+      const elapsedMs = Date.now() - new Date(existingOtp.last_sent_at).getTime();
+      const cooldownMs = 60 * 1000;
+      if (elapsedMs < cooldownMs) {
+        const remainingSec = Math.ceil((cooldownMs - elapsedMs) / 1000);
+        return reply.status(429).send({
+          error: `Please wait ${remainingSec} seconds before requesting another verification code.`,
+        });
+      }
+    }
+
+    // Generate cryptographically secure 6-digit numeric code (100000 - 999999)
+    const code = crypto.randomInt(100000, 1000000).toString();
+    const otpCodeHash = crypto.createHash('sha256').update(code).digest('hex');
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    db.upsertEmailOtp(email, otpCodeHash, expiresAt);
+
+    const mailRes = await sendVerificationEmail({
+      to: email,
+      code,
+      expiresInMinutes: 10,
+      purpose,
+    });
+
+    return reply.send({
+      success: true,
+      message: 'Verification code sent.',
+      expiresIn: 600,
+      ...(mailRes.devOtp ? { devOtp: mailRes.devOtp } : {}),
+    });
+  });
+
   // 1. Register
   app.post('/api/auth/register', async (request, reply) => {
     const parsed = RegisterRequestSchema.safeParse(request.body);
@@ -66,14 +118,63 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
       return reply.status(400).send({ error: parsed.error.message });
     }
 
-    const { email, authKeyHash, wrappedMasterKey, wrappedMasterKeyNonce, deviceId, deviceName } =
-      parsed.data;
+    const {
+      email,
+      authKeyHash,
+      wrappedMasterKey,
+      wrappedMasterKeyNonce,
+      deviceId,
+      deviceName,
+      otpCode,
+    } = parsed.data;
 
     // Check existing email
     const existing = db.getUserByEmail(email);
     if (existing) {
       return reply.status(409).send({ error: 'An account with this email already exists.' });
     }
+
+    // Verify Email OTP
+    const otpRecord = db.getEmailOtp(email);
+    if (!otpRecord) {
+      return reply.status(400).send({
+        error: 'No verification code found. Please request a verification code first.',
+      });
+    }
+
+    if (new Date(otpRecord.expires_at) < new Date()) {
+      db.deleteEmailOtp(email);
+      return reply.status(400).send({
+        error: 'Verification code has expired. Please request a new code.',
+      });
+    }
+
+    if (otpRecord.attempts >= 5) {
+      db.deleteEmailOtp(email);
+      return reply.status(429).send({
+        error: 'Too many incorrect attempts. This code has been invalidated. Please request a new code.',
+      });
+    }
+
+    const inputHash = crypto.createHash('sha256').update(otpCode.trim()).digest('hex');
+    const isMatch = crypto.timingSafeEqual(
+      Buffer.from(inputHash, 'hex'),
+      Buffer.from(otpRecord.otp_code_hash, 'hex'),
+    );
+
+    if (!isMatch) {
+      const attempts = db.incrementOtpAttempts(email);
+      const remaining = 5 - attempts;
+      return reply.status(400).send({
+        error:
+          remaining > 0
+            ? `Invalid verification code. ${remaining} attempts remaining.`
+            : 'Too many incorrect attempts. Please request a new code.',
+      });
+    }
+
+    // OTP verified successfully -> Burn OTP immediately
+    db.deleteEmailOtp(email);
 
     // Hash authKeyHash using Argon2id
     const { hashHex, saltHex } = hashAuthKey(authKeyHash);

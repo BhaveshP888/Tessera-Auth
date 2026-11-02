@@ -21,7 +21,34 @@ describe('Server Authentication & User-Scoped Sync', () => {
     const userAMasterKey = generateMasterKey();
     const userAEnvelope = wrapMasterKey(userAMasterKey, userAKeys.encKey);
 
-    // Register User A
+    // 0. Send Email OTP
+    const sendOtpRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register/send-otp',
+      payload: { email: userAEmail },
+    });
+    expect(sendOtpRes.statusCode).toBe(200);
+    const otpData = JSON.parse(sendOtpRes.body);
+    expect(otpData.devOtp).toBeDefined();
+    const validOtp = otpData.devOtp;
+
+    // Reject registration with wrong OTP code
+    const badOtpRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: userAEmail,
+        authKeyHash: userAKeys.authKeyHash,
+        wrappedMasterKey: userAEnvelope.wrappedMasterKey,
+        wrappedMasterKeyNonce: userAEnvelope.wrappedMasterKeyNonce,
+        deviceId: 'device-a-1',
+        deviceName: 'MacBook Pro',
+        otpCode: '000000',
+      },
+    });
+    expect(badOtpRes.statusCode).toBe(400);
+
+    // Register User A with correct OTP
     const regRes = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
@@ -32,6 +59,7 @@ describe('Server Authentication & User-Scoped Sync', () => {
         wrappedMasterKeyNonce: userAEnvelope.wrappedMasterKeyNonce,
         deviceId: 'device-a-1',
         deviceName: 'MacBook Pro',
+        otpCode: validOtp,
       },
     });
 
@@ -54,6 +82,7 @@ describe('Server Authentication & User-Scoped Sync', () => {
         wrappedMasterKey: userAEnvelope.wrappedMasterKey,
         wrappedMasterKeyNonce: userAEnvelope.wrappedMasterKeyNonce,
         deviceId: 'device-a-2',
+        otpCode: '123456',
       },
     });
     expect(dupRes.statusCode).toBe(409);
@@ -164,6 +193,14 @@ describe('Server Authentication & User-Scoped Sync', () => {
     const userBMasterKey = generateMasterKey();
     const userBEnvelope = wrapMasterKey(userBMasterKey, userBKeys.encKey);
 
+    const sendOtpBRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register/send-otp',
+      payload: { email: userBEmail },
+    });
+    expect(sendOtpBRes.statusCode).toBe(200);
+    const otpBData = JSON.parse(sendOtpBRes.body);
+
     const regBRes = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
@@ -173,8 +210,10 @@ describe('Server Authentication & User-Scoped Sync', () => {
         wrappedMasterKey: userBEnvelope.wrappedMasterKey,
         wrappedMasterKeyNonce: userBEnvelope.wrappedMasterKeyNonce,
         deviceId: 'device-b-1',
+        otpCode: otpBData.devOtp,
       },
     });
+    expect(regBRes.statusCode).toBe(201);
     const userBAccessToken = JSON.parse(regBRes.body).accessToken;
 
     // User A pushes 1 delta

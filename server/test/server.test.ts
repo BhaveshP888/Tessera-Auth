@@ -111,7 +111,7 @@ describe('Server Relay & Proxy', () => {
     const body = JSON.parse(validRes.body);
     expect(body.data).toBeDefined();
     expect(body.data.url).toBe('https://github.com/torvalds/linux');
-  });
+  }, 15_000);
 
   it('serves static JavaScript assets with application/javascript MIME type and not text/html fallback', async () => {
     const app = await buildServer();

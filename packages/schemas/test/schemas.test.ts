@@ -5,6 +5,7 @@ import {
   ExtensionManifestSchema,
   SyncDeltaSchema,
   RegisterRequestSchema,
+  SendOtpRequestSchema,
   LoginRequestSchema,
   Verify2FARequestSchema,
 } from '../src/index.js';
@@ -90,9 +91,17 @@ describe('Schemas', () => {
       wrappedMasterKey: 'bWFrZXIy...blob',
       wrappedMasterKeyNonce: 'bm9uY2U=',
       deviceId: 'device-123',
+      otpCode: '123456',
     });
     expect(reg.email).toBe('alice@example.com');
     expect(reg.authKeyHash).toHaveLength(64);
+    expect(reg.otpCode).toBe('123456');
+
+    const sendOtp = SendOtpRequestSchema.parse({
+      email: '  Alice@EXAMPLE.COM ',
+    });
+    expect(sendOtp.email).toBe('alice@example.com');
+    expect(sendOtp.purpose).toBe('registration');
 
     const login = LoginRequestSchema.parse({
       email: 'Bob@Example.com',

@@ -42,8 +42,13 @@ describe('End-to-End Zero-Knowledge E2EE Auth & Cross-Device Sync', () => {
     const userEmail = 'alice@privacy.org';
     const userPassword = 'MySecretMasterPassword2026!';
 
+    // Send OTP first
+    const otpRes = await engineA.sendRegistrationOtp(userEmail);
+    expect(otpRes.success).toBe(true);
+    expect(otpRes.devOtp).toBeDefined();
+
     // Register Device A (use lower rounds for test speed)
-    const regRes = await engineA.registerAccount(userEmail, userPassword, 'Alice Laptop', 5_000);
+    const regRes = await engineA.registerAccount(userEmail, userPassword, otpRes.devOtp!, 'Alice Laptop', 5_000);
     expect(regRes.success).toBe(true);
     expect(regRes.user?.email).toBe(userEmail);
     expect(engineA.getAuthToken()).toBeDefined();

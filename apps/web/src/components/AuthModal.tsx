@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Lock,
@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Eye,
   EyeOff,
+  RotateCcw,
 } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore.js';
 import { useUIStore } from '../store/useUIStore.js';
@@ -22,6 +23,7 @@ export const AuthModal: React.FC = () => {
 
   const {
     login,
+    sendRegistrationOtp,
     register,
     verify2FA,
     requires2FA,
@@ -32,13 +34,25 @@ export const AuthModal: React.FC = () => {
   } = useAuthStore();
 
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [registerStep, setRegisterStep] = useState<'form' | 'otp'>('form');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [deviceName, setDeviceName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [emailOtp, setEmailOtp] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [localValidation, setLocalValidation] = useState<string | null>(null);
+
+  // Resend cooldown countdown timer
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const interval = setInterval(() => {
+      setResendCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [resendCooldown]);
 
   if (!isOpen) return null;
 
@@ -46,6 +60,8 @@ export const AuthModal: React.FC = () => {
     clearError();
     setLocalValidation(null);
     resetTwoFactorChallenge();
+    setRegisterStep('form');
+    setEmailOtp('');
     closeModal();
   };
 
@@ -66,6 +82,32 @@ export const AuthModal: React.FC = () => {
 
   const strength = calculatePasswordStrength(password);
 
+  const handleSendOtp = async () => {
+    clearError();
+    setLocalValidation(null);
+
+    if (!email.trim() || !email.includes('@')) {
+      setLocalValidation('Please enter a valid email address.');
+      return;
+    }
+
+    if (password.length < 8) {
+      setLocalValidation('Password must be at least 8 characters long.');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setLocalValidation('Passwords do not match.');
+      return;
+    }
+
+    const res = await sendRegistrationOtp(email.trim());
+    if (res.success) {
+      setRegisterStep('otp');
+      setResendCooldown(60);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     clearError();
@@ -83,6 +125,28 @@ export const AuthModal: React.FC = () => {
       return;
     }
 
+    if (mode === 'register') {
+      if (registerStep === 'form') {
+        await handleSendOtp();
+      } else {
+        if (!emailOtp.trim() || emailOtp.trim().length !== 6) {
+          setLocalValidation('Please enter the 6-digit verification code sent to your email.');
+          return;
+        }
+
+        const res = await register(
+          email.trim(),
+          password,
+          emailOtp.trim(),
+          deviceName.trim() || undefined,
+        );
+        if (res.success) {
+          handleClose();
+        }
+      }
+      return;
+    }
+
     if (!email.trim() || !email.includes('@')) {
       setLocalValidation('Please enter a valid email address.');
       return;
@@ -93,21 +157,9 @@ export const AuthModal: React.FC = () => {
       return;
     }
 
-    if (mode === 'register') {
-      if (password !== confirmPassword) {
-        setLocalValidation('Passwords do not match.');
-        return;
-      }
-
-      const res = await register(email.trim(), password, deviceName.trim() || undefined);
-      if (res.success) {
-        handleClose();
-      }
-    } else {
-      const res = await login(email.trim(), password, deviceName.trim() || undefined);
-      if (res.success && !res.requires2FA) {
-        handleClose();
-      }
+    const res = await login(email.trim(), password, deviceName.trim() || undefined);
+    if (res.success && !res.requires2FA) {
+      handleClose();
     }
   };
 
@@ -172,7 +224,9 @@ export const AuthModal: React.FC = () => {
                 ? 'Two-Factor Authentication'
                 : mode === 'login'
                   ? 'Sign In to Tessera'
-                  : 'Create Zero-Knowledge Account'}
+                  : registerStep === 'otp'
+                    ? 'Verify Your Email'
+                    : 'Create Zero-Knowledge Account'}
             </span>
           </div>
           <button
@@ -189,8 +243,8 @@ export const AuthModal: React.FC = () => {
           </button>
         </div>
 
-        {/* Tab Selector (Hidden if in 2FA Challenge) */}
-        {!requires2FA && (
+        {/* Tab Selector (Hidden if in 2FA Challenge or Register OTP step) */}
+        {!requires2FA && registerStep !== 'otp' && (
           <div
             style={{
               display: 'flex',
@@ -204,6 +258,7 @@ export const AuthModal: React.FC = () => {
                 setMode('login');
                 clearError();
                 setLocalValidation(null);
+                setRegisterStep('form');
               }}
               style={{
                 flex: 1,
@@ -226,6 +281,7 @@ export const AuthModal: React.FC = () => {
                 setMode('register');
                 clearError();
                 setLocalValidation(null);
+                setRegisterStep('form');
               }}
               style={{
                 flex: 1,
@@ -381,6 +437,144 @@ export const AuthModal: React.FC = () => {
                   <span>Verify & Unlock</span>
                 </button>
               </div>
+            </div>
+          ) : mode === 'register' && registerStep === 'otp' ? (
+            /* Email OTP Verification Step */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div
+                style={{
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                }}
+              >
+                <div
+                  style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '8px',
+                    background: 'var(--surface-elevated)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--accent)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Mail size={18} />
+                </div>
+                <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                  We sent a 6-digit confirmation code to <strong style={{ color: 'var(--text-primary)' }}>{email}</strong>. Please enter it below to confirm email ownership.
+                </div>
+              </div>
+
+              <div>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    color: 'var(--text-muted)',
+                    marginBottom: '6px',
+                  }}
+                >
+                  6-Digit Email Verification Code
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={emailOtp}
+                  onChange={(e) => setEmailOtp(e.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="000000"
+                  maxLength={6}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    fontSize: '20px',
+                    letterSpacing: '6px',
+                    textAlign: 'center',
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--text-primary)',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => setRegisterStep('form')}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    padding: 0,
+                    textDecoration: 'underline',
+                  }}
+                >
+                  Change Email
+                </button>
+
+                <button
+                  type="button"
+                  disabled={resendCooldown > 0 || isLoading}
+                  onClick={handleSendOtp}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: resendCooldown > 0 ? 'var(--text-muted)' : 'var(--accent)',
+                    fontSize: '12px',
+                    cursor: resendCooldown > 0 ? 'not-allowed' : 'pointer',
+                    padding: 0,
+                  }}
+                >
+                  <RotateCcw size={12} />
+                  <span>{resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : 'Resend code'}</span>
+                </button>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  padding: '10px 16px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--accent)',
+                  color: 'var(--accent-contrast)',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: isLoading ? 'not-allowed' : 'pointer',
+                  boxShadow: 'var(--shadow-sm)',
+                  marginTop: '4px',
+                }}
+              >
+                {isLoading ? (
+                  <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                ) : (
+                  <ArrowRight size={14} />
+                )}
+                <span>{isLoading ? 'Deriving Keys & Registering...' : 'Verify & Create Account'}</span>
+              </button>
             </div>
           ) : (
             /* Email & Password Form */
@@ -625,10 +819,10 @@ export const AuthModal: React.FC = () => {
                 )}
                 <span>
                   {isLoading
-                    ? 'Deriving Keys & Connecting...'
+                    ? 'Connecting...'
                     : mode === 'login'
                       ? 'Sign In & Decrypt'
-                      : 'Create Account & Wrap Master Key'}
+                      : 'Continue & Verify Email'}
                 </span>
               </button>
             </>

@@ -735,9 +735,41 @@ export class LocalStoreEngine {
     }
   }
 
+  public async sendRegistrationOtp(
+    email: string,
+  ): Promise<{ success: boolean; message?: string; devOtp?: string; error?: string }> {
+    const serverUrl = this.getSyncServerUrl();
+    if (!serverUrl) {
+      return { success: false, error: 'Sync server URL is not configured' };
+    }
+
+    try {
+      const fetchFn = (this.relayTransport as any).fetchFn || globalThis.fetch;
+      const res = await fetchFn(`${serverUrl}/api/auth/register/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { success: false, error: data.error || `Failed to send verification code (${res.status})` };
+      }
+
+      return {
+        success: true,
+        message: data.message || 'Verification code sent.',
+        devOtp: data.devOtp,
+      };
+    } catch (err) {
+      return { success: false, error: (err as Error).message || 'Network error sending OTP' };
+    }
+  }
+
   public async registerAccount(
     email: string,
     password: string,
+    otpCode: string,
     deviceName?: string,
     pbkdf2Rounds?: number,
   ): Promise<{ success: boolean; user?: User; error?: string }> {
@@ -761,6 +793,7 @@ export class LocalStoreEngine {
           wrappedMasterKeyNonce: envelope.wrappedMasterKeyNonce,
           deviceId: this.deviceId,
           deviceName,
+          otpCode,
         }),
       });
 

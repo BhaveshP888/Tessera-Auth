@@ -42,6 +42,15 @@ export interface StoredUserDeltaEntry {
   receivedAt: string;
 }
 
+export interface DbEmailOtp {
+  email: string;
+  otp_code_hash: string;
+  attempts: number;
+  expires_at: string;
+  last_sent_at: string;
+  created_at: string;
+}
+
 export class TesseraDatabase {
   private db: Database;
 
@@ -120,6 +129,20 @@ export class TesseraDatabase {
 
     this.db.run(
       `CREATE INDEX IF NOT EXISTS idx_changelog_user_cursor ON sync_changelog(user_id, cursor);`,
+    );
+
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS email_verifications (
+        email TEXT PRIMARY KEY,
+        otp_code_hash TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        expires_at TEXT NOT NULL,
+        last_sent_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `);
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS idx_email_verifications_expiry ON email_verifications(expires_at);`,
     );
   }
 
@@ -386,7 +409,49 @@ export class TesseraDatabase {
     };
   }
 
+  // --- Email OTP Verification ---
+
+  public upsertEmailOtp(email: string, otpCodeHash: string, expiresAt: string): void {
+    const now = new Date().toISOString();
+    const normalized = email.toLowerCase().trim();
+    const stmt = this.db.prepare(`
+      INSERT INTO email_verifications (email, otp_code_hash, attempts, expires_at, last_sent_at, created_at)
+      VALUES ($email, $otp_code_hash, 0, $expires_at, $now, $now)
+      ON CONFLICT(email) DO UPDATE SET
+        otp_code_hash = $otp_code_hash,
+        attempts = 0,
+        expires_at = $expires_at,
+        last_sent_at = $now;
+    `);
+    stmt.run({
+      $email: normalized,
+      $otp_code_hash: otpCodeHash,
+      $expires_at: expiresAt,
+      $now: now,
+    });
+  }
+
+  public getEmailOtp(email: string): DbEmailOtp | null {
+    const stmt = this.db.prepare(`SELECT * FROM email_verifications WHERE email = $email`);
+    const row = stmt.get({ $email: email.toLowerCase().trim() }) as DbEmailOtp | null;
+    return row ? { ...row } : null;
+  }
+
+  public incrementOtpAttempts(email: string): number {
+    const stmt = this.db.prepare(`
+      UPDATE email_verifications SET attempts = attempts + 1 WHERE email = $email RETURNING attempts
+    `);
+    const res = stmt.get({ $email: email.toLowerCase().trim() }) as { attempts: number } | null;
+    return res?.attempts || 0;
+  }
+
+  public deleteEmailOtp(email: string): void {
+    const stmt = this.db.prepare(`DELETE FROM email_verifications WHERE email = $email`);
+    stmt.run({ $email: email.toLowerCase().trim() });
+  }
+
   public wipeAllData(): void {
+    this.db.run(`DELETE FROM email_verifications;`);
     this.db.run(`DELETE FROM sync_changelog;`);
     this.db.run(`DELETE FROM devices;`);
     this.db.run(`DELETE FROM sessions;`);
