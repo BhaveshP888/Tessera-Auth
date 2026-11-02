@@ -1,0 +1,26 @@
+services:
+  tessera:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tessera-app
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      - NODE_ENV=production
+      - PORT=8787
+      - HOST=0.0.0.0
+      - WEB_DIST_PATH=/app/web-dist
+    volumes:
+      - tessera-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8787/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  tessera-data:
+    driver: local

@@ -1,0 +1,17 @@
+{
+  "name": "@tessera/extension-markdown-export",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tessera/schemas": "workspace:*",
+    "@tessera/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

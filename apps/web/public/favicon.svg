@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Background Obsidian Squircle -->
+  <rect width="512" height="512" rx="128" fill="#09090b"/>
+  <rect x="8" y="8" width="496" height="496" rx="120" stroke="rgba(255, 255, 255, 0.12)" stroke-width="8"/>
+  
+  <!-- Minimalist Geometric Bookmark Ribbon -->
+  <path d="M144 112H368C376.837 112 384 119.163 384 128V396C384 406.848 371.328 412.753 362.836 406.012L256 321.2L149.164 406.012C140.672 412.753 128 406.848 128 396V128C128 119.163 135.163 112 144 112Z" fill="#FFFFFF"/>
+  
+  <!-- Inner Geometric "T" Cutout -->
+  <path d="M192 176H320V220H276V300H236V220H192V176Z" fill="#09090b"/>
+</svg>

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Save to Tessera</title>
+  <style>
+    :root {
+      --bg: #000000;
+      --surface: #121215;
+      --surface-hover: #1c1c20;
+      --border: rgba(255, 255, 255, 0.12);
+      --border-focus: #ffffff;
+      --text: #ffffff;
+      --text-dim: #a1a1aa;
+      --accent: #ffffff;
+      --accent-dim: rgba(255, 255, 255, 0.10);
+      --amber: #e4e4e7;
+      --amber-dim: rgba(255, 255, 255, 0.08);
+      --green: #f4f4f5;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 350px;
+      padding: 16px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand-wrap { display: flex; align-items: center; gap: 7px; }
+    .brand-icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 5px;
+      background: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
+      color: #000000;
+    }
+    .brand { font-weight: 700; font-size: 14px; color: var(--text); letter-spacing: -0.2px; }
+    .header-actions { display: flex; align-items: center; gap: 6px; }
+    .btn-icon {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      border-radius: 5px;
+      padding: 4px 6px;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+    .btn-icon:hover { color: var(--text); border-color: var(--border-focus); background: var(--surface-hover); }
+    .badge {
+      font-size: 9px;
+      font-family: monospace;
+      background: var(--accent-dim);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+    
+    /* Settings Drawer */
+    #settings-drawer {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 14px;
+    }
+    #settings-drawer.open { display: block; }
+    .settings-title { font-size: 11.5px; font-weight: 600; color: #ffffff; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+    .settings-hint { font-size: 10.5px; color: var(--text-dim); margin-top: 4px; line-height: 1.4; }
+
+    .form-group { margin-bottom: 11px; }
+    label {
+      display: block;
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+    input, textarea, select {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 10px;
+      color: var(--text);
+      font-size: 12px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+    input:focus, textarea:focus, select:focus {
+      border-color: var(--border-focus);
+      background: var(--surface-hover);
+    }
+    select option {
+      background: #121215;
+      color: #ffffff;
+    }
+    .actions-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      border: none;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.12s ease;
+    }
+    .btn-primary {
+      background: #ffffff;
+      color: #000000;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .btn-primary:hover {
+      background: #e4e4e7;
+    }
+    .btn-vault {
+      background: #18181b;
+      color: #ffffff;
+      border: 1px solid var(--border);
+    }
+    .btn-vault:hover {
+      background: #27272a;
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+    .btn-sm {
+      padding: 6px 8px;
+      font-size: 11px;
+      border-radius: 4px;
+      background: #ffffff;
+      color: #000000;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      margin-top: 8px;
+      width: 100%;
+    }
+    .btn-sm:hover { background: #e4e4e7; }
+    .status {
+      margin-top: 10px;
+      padding: 7px 10px;
+      border-radius: 5px;
+      font-size: 11.5px;
+      text-align: center;
+      display: none;
+    }
+    .status-library {
+      background: rgba(255, 255, 255, 0.10);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .status-vault {
+      background: #18181b;
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .status-info {
+      background: rgba(255, 255, 255, 0.08);
+      color: #a1a1aa;
+      border: 1px solid var(--border);
+    }
+    #custom-col-wrap {
+      display: none;
+      margin-top: 6px;
+    }
+    .sync-indicator {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #71717a;
+      margin-right: 4px;
+    }
+    .sync-indicator.online { background: #ffffff; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand-wrap">
+      <div class="brand-icon">T</div>
+      <span class="brand">Tessera</span>
+    </div>
+    <div class="header-actions">
+      <span class="badge" id="sync-status-badge"><span class="sync-indicator" id="sync-dot"></span><span id="sync-label">LOCAL</span></span>
+      <button type="button" class="btn-icon" id="btn-toggle-settings" title="Cloud Sync Settings">⚙️</button>
+    </div>
+  </div>
+
+  <!-- Settings Drawer for Cloud Sync -->
+  <div id="settings-drawer">
+    <div class="settings-title">
+      <span>Cloud Sync Connection</span>
+      <span style="font-size: 10px; color: var(--text-dim);">E2E Relay</span>
+    </div>
+    <div class="form-group">
+      <label for="server-url">Sync Server URL</label>
+      <input type="url" id="server-url" placeholder="https://your-app.vercel.app or http://localhost:8787" />
+    </div>
+    <div class="form-group">
+      <label for="master-key">Master Key (from Web App)</label>
+      <input type="password" id="master-key" placeholder="Paste 32-byte Base64 key..." />
+    </div>
+    <button type="button" id="btn-save-settings" class="btn-sm">Save & Pull Live Collections</button>
+    <div class="settings-hint">
+      Paste your deployed app URL and Master Key (from Key icon in web app) to sync live collections and push directly.
+    </div>
+  </div>
+
+  <form id="save-form">
+    <div class="form-group">
+      <label for="url">URL *</label>
+      <input type="url" id="url" required />
+    </div>
+
+    <div class="form-group">
+      <label for="title">Title *</label>
+      <input type="text" id="title" required />
+    </div>
+
+    <div class="form-group">
+      <label for="collection">Collection</label>
+      <select id="collection">
+        <option value="">None (General Library)</option>
+        <option value="__new__">+ New collection...</option>
+      </select>
+      <div id="custom-col-wrap">
+        <input type="text" id="custom-collection" placeholder="Type new collection name..." />
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="tags">Tags (comma separated)</label>
+      <input type="text" id="tags" placeholder="privacy, docs, tools" />
+    </div>
+
+    <div class="form-group">
+      <label for="notes">Notes</label>
+      <textarea id="notes" rows="2" placeholder="Private note..."></textarea>
+    </div>
+
+    <div class="actions-grid">
+      <button type="button" id="btn-save-library" class="btn btn-primary">
+        <span>Save to Library</span>
+      </button>
+      <button type="button" id="btn-save-vault" class="btn btn-vault">
+        <span>🔒 Add to Vault</span>
+      </button>
+    </div>
+  </form>
+
+  <div id="status" class="status"></div>
+
+  <script type="module" src="src/popup.ts"></script>
+</body>
+</html>
