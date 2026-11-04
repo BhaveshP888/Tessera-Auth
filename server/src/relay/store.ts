@@ -54,21 +54,25 @@ export class SyncRelayStore {
     }
   }
 
-  private saveToDisk(): void {
+  private async saveToDiskAsync(): Promise<void> {
     try {
       const dir = path.dirname(this.storageFilePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
+      await fs.promises.mkdir(dir, { recursive: true });
       const data = {
         globalCursor: this.globalCursor,
         changelog: this.changelog,
         devices: Array.from(this.devices.values()),
       };
-      fs.writeFileSync(this.storageFilePath, JSON.stringify(data, null, 2), 'utf-8');
+      const tmpPath = `${this.storageFilePath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+      await fs.promises.writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+      await fs.promises.rename(tmpPath, this.storageFilePath);
     } catch (err) {
       console.warn('[SyncRelayStore] Could not persist changelog to disk (memory relay active):', err);
     }
+  }
+
+  private saveToDisk(): void {
+    void this.saveToDiskAsync();
   }
 
   /**

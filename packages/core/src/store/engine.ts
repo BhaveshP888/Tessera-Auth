@@ -629,9 +629,9 @@ export class LocalStoreEngine {
     this.notify();
   }
 
-  public enableVaultSync(passphrase: string): { success: boolean; error?: string } {
+  public enableVaultSync(passphrase: string, userPin: string): { success: boolean; error?: string } {
     try {
-      const config = this.vaultSession.enableSync(passphrase, this.masterKey, this.vaultConfig);
+      const config = this.vaultSession.enableSync(passphrase, this.masterKey, userPin, this.vaultConfig);
       this.vaultConfig = config;
       this.persist('vaultConfig', this.vaultConfig);
       this.notify();

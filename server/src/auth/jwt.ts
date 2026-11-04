@@ -12,8 +12,19 @@ export const getJwtSecret = (): string => {
     return cachedJwtSecret;
   }
 
+  if (process.env['AUTH_SECRET']) {
+    cachedJwtSecret = process.env['AUTH_SECRET'];
+    return cachedJwtSecret;
+  }
+
+  if (process.env['NODE_ENV'] === 'production') {
+    throw new Error(
+      'CRITICAL SECURITY CONFIGURATION ERROR: JWT_SECRET or AUTH_SECRET environment variable is not defined in production mode. Refusing to generate an insecure ephemeral secret.',
+    );
+  }
+
   console.warn(
-    '[Tessera Auth] JWT_SECRET environment variable is not set. Generating ephemeral 256-bit secret.',
+    '[Tessera Auth] JWT_SECRET environment variable is not set. Generating ephemeral 256-bit secret for local development.',
   );
   cachedJwtSecret = crypto.randomBytes(32).toString('hex');
   return cachedJwtSecret;

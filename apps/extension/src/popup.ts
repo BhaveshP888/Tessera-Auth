@@ -35,6 +35,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const settingsDrawer = document.getElementById('settings-drawer') as HTMLDivElement;
   const serverUrlInput = document.getElementById('server-url') as HTMLInputElement;
   const masterKeyInput = document.getElementById('master-key') as HTMLInputElement;
+  const vaultMasterKeyInput = document.getElementById('vault-master-key') as HTMLInputElement | null;
   const btnSaveSettings = document.getElementById('btn-save-settings') as HTMLButtonElement;
   const syncDot = document.getElementById('sync-dot') as HTMLSpanElement;
   const syncLabel = document.getElementById('sync-label') as HTMLSpanElement;
@@ -78,6 +79,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const data = await chrome.storage.local.get([
         'tessera_server_url',
         'tessera_master_key',
+        'tessera_vault_master_key',
         'tessera_collections',
       ]);
       serverUrl = data['tessera_server_url'] || 'https://tesserabm.vercel.app';
@@ -86,6 +88,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       serverUrlInput.value = serverUrl;
       masterKeyInput.value = masterKeyBase64;
+      if (vaultMasterKeyInput) {
+        vaultMasterKeyInput.value = data['tessera_vault_master_key'] || '';
+      }
     } else {
       serverUrlInput.value = serverUrl;
     }
@@ -175,11 +180,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const rawServerUrl = serverUrlInput.value.trim();
     const serverUrl = normalizeUrl(rawServerUrl);
     const masterKey = masterKeyInput.value.trim();
+    const vaultKey = vaultMasterKeyInput?.value.trim() || '';
 
     if (typeof chrome !== 'undefined' && chrome.storage) {
       await chrome.storage.local.set({
         tessera_server_url: serverUrl,
         tessera_master_key: masterKey,
+        tessera_vault_master_key: vaultKey,
       });
     }
 
@@ -283,14 +290,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Check if cloud sync is available
     if (typeof chrome !== 'undefined' && chrome.storage) {
-      const data = await chrome.storage.local.get(['tessera_server_url', 'tessera_master_key']);
+      const data = await chrome.storage.local.get(['tessera_server_url', 'tessera_master_key', 'tessera_vault_master_key']);
       const rawServerUrl = data['tessera_server_url'] || 'https://tesserabm.vercel.app';
       const masterKeyBase64 = data['tessera_master_key'] || '';
+      const vaultKeyBase64 = data['tessera_vault_master_key'] || '';
       const cleanUrl = normalizeUrl(rawServerUrl);
 
-      if (cleanUrl && masterKeyBase64.trim()) {
+      if (isVault && !vaultKeyBase64.trim()) {
+        statusEl.className = 'status status-vault';
+        statusEl.textContent = '🔒 Private Vault Key required. Please configure it in extension settings.';
+        statusEl.style.display = 'block';
+        return;
+      }
+
+      if (cleanUrl && (masterKeyBase64.trim() || (isVault && vaultKeyBase64.trim()))) {
         try {
-          const masterKey = base64ToUint8Array(masterKeyBase64.trim());
+          const masterKey = masterKeyBase64.trim() ? base64ToUint8Array(masterKeyBase64.trim()) : new Uint8Array(32);
+          const vaultKey = vaultKeyBase64.trim() ? base64ToUint8Array(vaultKeyBase64.trim()) : null;
+          const activeKey = isVault ? (vaultKey || masterKey) : masterKey;
           const deltasToPush: SyncDelta[] = [];
 
           // If new collection created, push collection delta too
@@ -316,8 +333,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
           }
 
-          // Seal Bookmark
-          const recordKey = deriveRecordKey(masterKey, bookmarkId);
+          // Seal Bookmark using dedicated vault key if saving to Private Vault
+          const recordKey = deriveRecordKey(activeKey, bookmarkId);
           const sealed = sealRecord(recordKey, bookmarkData);
 
           deltasToPush.push({

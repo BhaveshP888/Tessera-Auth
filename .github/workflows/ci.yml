@@ -6,9 +6,14 @@ on:
       - main
       - responsive-ui
       - 'feature/**'
+      - 'fix/**'
   pull_request:
     branches:
       - main
+      - responsive-ui
+      - 'feature/**'
+      - 'fix/**'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
