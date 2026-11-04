@@ -7,6 +7,7 @@ import {
   computeSecretHash,
   wrapVaultKey,
   unwrapVaultKey,
+  isValidPin,
 } from './vault.js';
 import { deriveRecordKey, uint8ArrayToHex, hexToUint8Array } from './keys.js';
 import { sealRecord, unsealRecord } from './cipher.js';
@@ -18,7 +19,7 @@ export interface IVaultSessionManager {
   lock(): void;
   seal(bookmark: Bookmark): { ciphertext: string; nonce: string };
   unseal(ciphertext: string, nonce: string, entityId: string): Bookmark | null;
-  enableSync(passphrase: string, masterKey: Uint8Array, config: VaultConfig): VaultConfig;
+  enableSync(passphrase: string, masterKey: Uint8Array, userPin: string, config: VaultConfig): VaultConfig;
   restoreFromSync(passphrase: string, masterKey: Uint8Array, localPin: string): VaultConfig;
   wipe(): void;
 }
@@ -59,7 +60,6 @@ export class VaultSessionManager implements IVaultSessionManager {
     }
 
     const wrappedKeyPin = wrapVaultKey(vaultMasterKey, pinKek);
-    const pinVerificationHash = computeSecretHash(pin, pinSalt);
 
     // Retain key in active memory
     this.activeVaultMasterKey = new Uint8Array(vaultMasterKey);
@@ -67,7 +67,7 @@ export class VaultSessionManager implements IVaultSessionManager {
     return {
       isConfigured: true,
       pinSalt: uint8ArrayToHex(pinSalt),
-      pinHash: pinVerificationHash,
+      pinHash: '',
       wipeAfterAttempts: 5,
       failedAttempts: 0,
       isSyncEnabled,
@@ -79,18 +79,19 @@ export class VaultSessionManager implements IVaultSessionManager {
 
   /**
    * Unlocks the vault using the user's 7-digit numeric PIN.
+   * Cryptographically verifies validity via XChaCha20-Poly1305 MAC tag
+   * to eliminate offline cracking hash oracles.
    */
   public unlock(pin: string, config: VaultConfig): boolean {
-    if (!config.isConfigured || !config.pinSalt || !config.pinHash) {
+    if (!config.isConfigured || !config.pinSalt || !config.encryptedVaultKeyWithPin) {
+      return false;
+    }
+
+    if (!isValidPin(pin)) {
       return false;
     }
 
     const salt = hexToUint8Array(config.pinSalt);
-    const expectedHash = computeSecretHash(pin, salt);
-    if (expectedHash !== config.pinHash) {
-      return false;
-    }
-
     const pinKek = derivePinKey(pin, salt);
     const parts = (config.encryptedVaultKeyWithPin || '').split(':');
     if (parts.length !== 2) return false;
@@ -144,11 +145,20 @@ export class VaultSessionManager implements IVaultSessionManager {
   }
 
   /**
-   * Enables cross-device sync on an existing vault using a sync passphrase.
+   * Enables cross-device sync on an existing vault using a sync passphrase and the user's PIN.
    */
-  public enableSync(passphrase: string, masterKey: Uint8Array, config: VaultConfig): VaultConfig {
+  public enableSync(
+    passphrase: string,
+    masterKey: Uint8Array,
+    userPin: string,
+    config: VaultConfig,
+  ): VaultConfig {
     if (!this.activeVaultMasterKey) {
       throw new Error('Cannot enable sync: Vault is locked.');
+    }
+
+    if (!isValidPin(userPin)) {
+      throw new Error('Valid 7-digit PIN required to enable sync');
     }
 
     // Deterministically derive synced vault master key
@@ -156,8 +166,8 @@ export class VaultSessionManager implements IVaultSessionManager {
     this.activeVaultMasterKey = new Uint8Array(syncedVaultMasterKey);
 
     const pinSalt = hexToUint8Array(config.pinSalt);
-    const dummyPinKek = derivePinKey('0000000', pinSalt);
-    const wrappedKeyPin = wrapVaultKey(syncedVaultMasterKey, dummyPinKek);
+    const realPinKek = derivePinKey(userPin, pinSalt);
+    const wrappedKeyPin = wrapVaultKey(syncedVaultMasterKey, realPinKek);
 
     return {
       ...config,
@@ -175,14 +185,13 @@ export class VaultSessionManager implements IVaultSessionManager {
     const pinSalt = generateVaultSalt();
     const pinKek = derivePinKey(localPin, pinSalt);
     const wrappedKeyPin = wrapVaultKey(vaultMasterKey, pinKek);
-    const pinVerificationHash = computeSecretHash(localPin, pinSalt);
 
     this.activeVaultMasterKey = new Uint8Array(vaultMasterKey);
 
     return {
       isConfigured: true,
       pinSalt: uint8ArrayToHex(pinSalt),
-      pinHash: pinVerificationHash,
+      pinHash: '',
       wipeAfterAttempts: 5,
       failedAttempts: 0,
       isSyncEnabled: true,

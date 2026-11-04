@@ -1,3 +1,5 @@
+import dns from 'node:dns/promises';
+
 export interface PageMetadata {
   url: string;
   title: string;
@@ -116,9 +118,79 @@ export function isPrivateOrReservedIpv4(ipNum: number): boolean {
 }
 
 /**
- * Validates whether a target URL is safe to fetch (blocks SSRF / private networks).
+ * Checks whether an IP string is private, loopback, link-local, carrier-grade NAT, or reserved.
  */
-export const isSafePublicUrl = (targetUrl: string): boolean => {
+export function isPrivateOrReservedIp(ipStr: string): boolean {
+  const cleanIp = ipStr.startsWith('[') && ipStr.endsWith(']') ? ipStr.slice(1, -1) : ipStr;
+
+  const ipv4Num = parseIpv4ToNumber(cleanIp);
+  if (ipv4Num !== null) {
+    return isPrivateOrReservedIpv4(ipv4Num);
+  }
+
+  const lower = cleanIp.toLowerCase();
+  if (lower === '::' || lower === '::1' || lower === '0:0:0:0:0:0:0:1') {
+    return true;
+  }
+
+  if (lower.startsWith('::ffff:')) {
+    const rest = lower.slice(7);
+    const mappedNum = parseIpv4ToNumber(rest);
+    if (mappedNum !== null) {
+      return isPrivateOrReservedIpv4(mappedNum);
+    }
+  }
+
+  if (lower.startsWith('fc') || lower.startsWith('fd')) {
+    return true;
+  }
+
+  if (
+    lower.startsWith('fe8') ||
+    lower.startsWith('fe9') ||
+    lower.startsWith('fea') ||
+    lower.startsWith('feb')
+  ) {
+    return true;
+  }
+
+  if (lower.startsWith('ff')) {
+    return true;
+  }
+
+  if (lower.startsWith('64:ff9b::')) {
+    const suffix = lower.slice('64:ff9b::'.length);
+    if (suffix.includes('.')) {
+      const ipv4Num = parseIpv4ToNumber(suffix);
+      if (ipv4Num !== null) return isPrivateOrReservedIpv4(ipv4Num);
+    }
+    const parts = suffix.split(':');
+    if (parts.length === 2) {
+      const p0 = parseInt(parts[0]!, 16);
+      const p1 = parseInt(parts[1]!, 16);
+      if (!isNaN(p0) && !isNaN(p1)) {
+        const ipNum =
+          (((p0 >> 8) & 0xff) << 24) |
+          ((p0 & 0xff) << 16) |
+          (((p1 >> 8) & 0xff) << 8) |
+          (p1 & 0xff);
+        return isPrivateOrReservedIpv4(ipNum >>> 0);
+      }
+    }
+    return true;
+  }
+
+  if (lower.startsWith('100::')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Validates whether a target URL is safe to fetch (blocks SSRF / private networks / DNS rebinding).
+ */
+export const isSafePublicUrl = async (targetUrl: string): Promise<boolean> => {
   try {
     const url = new URL(normalizeUrl(targetUrl));
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -134,6 +206,7 @@ export const isSafePublicUrl = (targetUrl: string): boolean => {
       host === 'localhost' ||
       host === '::' ||
       host === '::1' ||
+      host.endsWith('.localhost') ||
       host.endsWith('.local') ||
       host.endsWith('.internal') ||
       host.endsWith('.lan') ||
@@ -142,29 +215,22 @@ export const isSafePublicUrl = (targetUrl: string): boolean => {
       return false;
     }
 
-    // IPv6 private / link-local / loopback checks
-    if (
-      host.startsWith('fc') ||
-      host.startsWith('fd') ||
-      host.startsWith('fe80:') ||
-      host.startsWith('::ffff:')
-    ) {
-      if (host.startsWith('::ffff:')) {
-        const mappedIp = host.slice(7);
-        const mappedNum = parseIpv4ToNumber(mappedIp);
-        if (mappedNum !== null && isPrivateOrReservedIpv4(mappedNum)) {
-          return false;
-        }
-      }
+    if (isPrivateOrReservedIp(host)) {
       return false;
     }
 
-    // IPv4 Checks
-    const ipNum = parseIpv4ToNumber(host);
-    if (ipNum !== null) {
-      if (isPrivateOrReservedIpv4(ipNum)) {
+    try {
+      const addresses = await dns.lookup(host, { all: true });
+      if (!addresses || addresses.length === 0) {
         return false;
       }
+      for (const addr of addresses) {
+        if (isPrivateOrReservedIp(addr.address)) {
+          return false;
+        }
+      }
+    } catch {
+      return false;
     }
 
     return true;
@@ -294,7 +360,7 @@ export const fetchPrivacyReaderMetadata = async (
 ): Promise<{ data: PageMetadata | null; error: string | null }> => {
   let currentUrl = cleanTrackingParams(rawUrl);
 
-  if (!isSafePublicUrl(currentUrl)) {
+  if (!(await isSafePublicUrl(currentUrl))) {
     return { data: null, error: 'Invalid or restricted URL' };
   }
 
@@ -324,7 +390,7 @@ export const fetchPrivacyReaderMetadata = async (
         if (!location) break;
 
         const nextUrl = new URL(location, currentUrl).toString();
-        if (!isSafePublicUrl(nextUrl)) {
+        if (!(await isSafePublicUrl(nextUrl))) {
           clearTimeout(timeout);
           return { data: null, error: 'Restricted redirect destination' };
         }
@@ -353,7 +419,31 @@ export const fetchPrivacyReaderMetadata = async (
       };
     }
 
-    const html = await response.text();
+    // Stream response body up to max 512 KB to prevent memory exhaustion DoS
+    const MAX_RESPONSE_BYTES = 512 * 1024;
+    let html = '';
+    if (response.body) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let bytesRead = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          bytesRead += value.byteLength;
+          html += decoder.decode(value, { stream: true });
+          if (bytesRead >= MAX_RESPONSE_BYTES) {
+            reader.cancel();
+            break;
+          }
+        }
+      }
+      html += decoder.decode();
+    } else {
+      const fullText = await response.text();
+      html = fullText.length > MAX_RESPONSE_BYTES ? fullText.slice(0, MAX_RESPONSE_BYTES) : fullText;
+    }
+
     const metadata = extractOpenGraphMetadata(html, currentUrl);
     return { data: metadata, error: null };
   } catch {

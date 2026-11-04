@@ -22,7 +22,7 @@ export interface VaultSettingsModalProps {
   isVaultUnlocked?: boolean;
   onSetupVault?: (pin: string, wipeAfterAttempts?: number, autoLockMinutes?: number) => { success: boolean; error?: string };
   onRestoreVaultFromSync?: (passphrase: string, pin: string, wipeAfterAttempts?: number, autoLockMinutes?: number) => { success: boolean; error?: string };
-  onEnableSync?: (passphrase: string) => { success: boolean; error?: string };
+  onEnableSync?: (passphrase: string, userPin: string) => { success: boolean; error?: string };
   onDisableSync?: () => void;
   onWipeVault?: () => void;
 }
@@ -57,6 +57,7 @@ export const VaultSettingsModal: React.FC<VaultSettingsModalProps> = (props) => 
   const [wipeThreshold, setWipeThreshold] = useState<number>(vaultConfig.wipeAfterAttempts || 5);
   const [autoLockMinutes, setAutoLockMinutes] = useState<number>(vaultConfig.autoLockTimeoutMinutes || 5);
   const [syncPassphrase, setSyncPassphrase] = useState('');
+  const [syncPin, setSyncPin] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -117,11 +118,16 @@ export const VaultSettingsModal: React.FC<VaultSettingsModalProps> = (props) => 
         setErrorMessage('Sync passphrase must be at least 12 characters and not purely numeric.');
         return;
       }
+      if (!isValidPin(syncPin)) {
+        setErrorMessage('Your 7-digit PIN is required to authorize cloud synchronization.');
+        return;
+      }
 
-      const res = onEnableSync(syncPassphrase);
+      const res = onEnableSync(syncPassphrase, syncPin);
       if (res.success) {
         setSuccessMessage('Vault Cloud Sync enabled with strong passphrase encryption!');
         setSyncPassphrase('');
+        setSyncPin('');
       } else {
         setErrorMessage(res.error || 'Failed to enable sync');
       }

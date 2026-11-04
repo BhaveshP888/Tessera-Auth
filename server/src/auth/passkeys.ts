@@ -25,9 +25,17 @@ export interface UserAccount {
 // In-memory user / passkey store for zero-knowledge self-host relay
 const userStore = new Map<string, UserAccount>();
 
-export const RP_NAME = 'Tessera Sync Relay';
-export const RP_ID = 'localhost';
-export const ORIGIN = 'http://localhost:3000';
+export const RP_NAME = process.env['WEBAUTHN_RP_NAME'] || 'Tessera Sync Relay';
+export const RP_ID = process.env['WEBAUTHN_RP_ID'] || 'localhost';
+export const ORIGIN = process.env['WEBAUTHN_ORIGIN'] || 'http://localhost:3000';
+
+export const resolveRpId = (explicitRpId?: string): string => {
+  return explicitRpId || process.env['WEBAUTHN_RP_ID'] || 'localhost';
+};
+
+export const resolveOrigin = (explicitOrigin?: string): string => {
+  return explicitOrigin || process.env['WEBAUTHN_ORIGIN'] || 'http://localhost:3000';
+};
 
 /**
  * Generates WebAuthn registration options for a new passkey.

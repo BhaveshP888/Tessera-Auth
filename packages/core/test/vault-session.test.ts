@@ -87,4 +87,24 @@ describe('VaultSessionManager Deep Module', () => {
     const unsealedOnDevice2 = device2Session.unseal(sealed.ciphertext, sealed.nonce, sampleBookmark.id);
     expect(unsealedOnDevice2?.title).toBe('Secret Infrastructure Config');
   });
+
+  it('enables cross-device sync on an existing vault using passphrase and user PIN', () => {
+    const session = new VaultSessionManager();
+    const config = session.setup('1234567');
+    const masterKey = generateMasterKey();
+    const passphrase = 'my-ultra-strong-vault-passphrase-2026';
+
+    const syncedConfig = session.enableSync(passphrase, masterKey, '1234567', config);
+    expect(syncedConfig.isSyncEnabled).toBe(true);
+
+    // Lock and verify unlocking with original user PIN succeeds
+    session.lock();
+    const unlocked = session.unlock('1234567', syncedConfig);
+    expect(unlocked).toBe(true);
+
+    // Verify unlocking with dummy PIN '0000000' fails
+    session.lock();
+    const dummyUnlocked = session.unlock('0000000', syncedConfig);
+    expect(dummyUnlocked).toBe(false);
+  });
 });

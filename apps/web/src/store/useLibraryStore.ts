@@ -150,7 +150,7 @@ export interface LibraryState {
   wipeVaultData: () => void;
   unlockVault: (pin: string) => VaultUnlockResult;
   lockVault: () => void;
-  enableVaultSync: (passphrase: string) => { success: boolean; error?: string };
+  enableVaultSync: (passphrase: string, userPin: string) => { success: boolean; error?: string };
   disableVaultSync: () => void;
 
   importMasterKey: (b64: string) => { success: boolean; error?: string };
@@ -291,8 +291,8 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
     get().logAudit('vault_locked', 'success', {});
   },
 
-  enableVaultSync: (passphrase) => {
-    const res = engine.enableVaultSync(passphrase);
+  enableVaultSync: (passphrase, userPin) => {
+    const res = engine.enableVaultSync(passphrase, userPin);
     if (res.success) {
       set({ vaultConfig: engine.getVaultConfig() });
       get().logAudit('vault_sync_enabled', 'success', {});

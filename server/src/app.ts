@@ -34,9 +34,28 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
 
 
   await app.register(cors, {
-    origin: true,
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      const configuredOrigin = process.env['CORS_ORIGIN'];
+      if (configuredOrigin) {
+        const allowed = configuredOrigin.split(',').map((o) => o.trim().toLowerCase());
+        if (allowed.includes(origin.toLowerCase())) return cb(null, true);
+      }
+      const lower = origin.toLowerCase();
+      if (
+        lower.startsWith('http://localhost:') ||
+        lower.startsWith('https://localhost:') ||
+        lower.startsWith('http://127.0.0.1:') ||
+        lower.startsWith('https://127.0.0.1:') ||
+        lower.startsWith('chrome-extension://') ||
+        lower.startsWith('moz-extension://')
+      ) {
+        return cb(null, true);
+      }
+      return cb(new Error('Not allowed by CORS policy'), false);
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', '*'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
     credentials: true,
   });
   await app.register(sensible);
@@ -92,8 +111,31 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
   // Register Auth Routes
   registerAuthRoutes(app, db);
 
-  // Sync Relay: Push encrypted deltas
+  // Principal authentication helper for sync endpoints
+  const getAuthenticatedPrincipal = (authHeader: string | undefined): { userId: string } | 'RELAY_API_KEY' | null => {
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return null;
+    }
+    const token = authHeader.slice(7).trim();
+    const relayApiKey = process.env['RELAY_API_KEY'];
+    if (relayApiKey && token === relayApiKey) {
+      return 'RELAY_API_KEY';
+    }
+    const payload = verifyAccessToken(token);
+    if (payload) {
+      return { userId: payload.sub };
+    }
+    return null;
+  };
+
+  // Sync Relay: Push encrypted deltas (authentication required)
   app.post('/api/sync/push', async (request, reply) => {
+    const authHeader = request.headers.authorization;
+    const principal = getAuthenticatedPrincipal(authHeader);
+    if (!principal) {
+      return reply.status(401).send({ error: 'Authentication required' });
+    }
+
     const parsed = SyncPushRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.badRequest(parsed.error.message);
@@ -101,22 +143,23 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
 
     const { deltas } = parsed.data;
 
-    // Check for authenticated user token
-    const authHeader = request.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const payload = verifyAccessToken(authHeader.slice(7).trim());
-      if (payload) {
-        const result = db.appendUserDeltas(payload.sub, deltas);
-        return result;
-      }
+    if (principal === 'RELAY_API_KEY') {
+      const result = relayStore.appendDeltas(deltas);
+      return result;
     }
 
-    const result = relayStore.appendDeltas(deltas);
+    const result = db.appendUserDeltas(principal.userId, deltas);
     return result;
   });
 
-  // Sync Relay: Pull encrypted deltas by cursor
+  // Sync Relay: Pull encrypted deltas by cursor (authentication required)
   app.post('/api/sync/pull', async (request, reply) => {
+    const authHeader = request.headers.authorization;
+    const principal = getAuthenticatedPrincipal(authHeader);
+    if (!principal) {
+      return reply.status(401).send({ error: 'Authentication required' });
+    }
+
     const parsed = SyncPullRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.badRequest(parsed.error.message);
@@ -124,55 +167,54 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
 
     const { sinceCursor, limit } = parsed.data;
 
-    // Check for authenticated user token
-    const authHeader = request.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const payload = verifyAccessToken(authHeader.slice(7).trim());
-      if (payload) {
-        const result = db.getUserDeltasSince(payload.sub, sinceCursor, limit);
-        return result;
-      }
+    if (principal === 'RELAY_API_KEY') {
+      const result = relayStore.getDeltasSince(sinceCursor, limit);
+      return result;
     }
 
-    const result = relayStore.getDeltasSince(sinceCursor, limit);
+    const result = db.getUserDeltasSince(principal.userId, sinceCursor, limit);
     return result;
   });
 
-  // Device Registry
+  // Device Registry (authentication required)
   app.post('/api/devices/register', async (request, reply) => {
+    const authHeader = request.headers.authorization;
+    const principal = getAuthenticatedPrincipal(authHeader);
+    if (!principal) {
+      return reply.status(401).send({ error: 'Authentication required' });
+    }
+
     const parsed = RegisteredDeviceSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.badRequest(parsed.error.message);
     }
 
-    const authHeader = request.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const payload = verifyAccessToken(authHeader.slice(7).trim());
-      if (payload) {
-        db.upsertDevice({
-          id: parsed.data.id,
-          userId: payload.sub,
-          name: parsed.data.name,
-          publicKeyHex: parsed.data.publicKey,
-        });
-        return { success: true };
-      }
+    if (principal === 'RELAY_API_KEY') {
+      relayStore.registerDevice(parsed.data);
+      return { success: true };
     }
 
-    relayStore.registerDevice(parsed.data);
+    db.upsertDevice({
+      id: parsed.data.id,
+      userId: principal.userId,
+      name: parsed.data.name,
+      publicKeyHex: parsed.data.publicKey,
+    });
     return { success: true };
   });
 
-  app.get('/api/devices', async (request) => {
+  app.get('/api/devices', async (request, reply) => {
     const authHeader = request.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const payload = verifyAccessToken(authHeader.slice(7).trim());
-      if (payload) {
-        return { devices: db.listDevicesForUser(payload.sub) };
-      }
+    const principal = getAuthenticatedPrincipal(authHeader);
+    if (!principal) {
+      return reply.status(401).send({ error: 'Authentication required' });
     }
 
-    return { devices: relayStore.listDevices() };
+    if (principal === 'RELAY_API_KEY') {
+      return { devices: relayStore.listDevices() };
+    }
+
+    return { devices: db.listDevicesForUser(principal.userId) };
   });
 
   // Privacy Reader Proxy: Metadata & OG scraper (supports GET & POST)

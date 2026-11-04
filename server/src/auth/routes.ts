@@ -27,6 +27,7 @@ import {
 } from './jwt.js';
 import { hashAuthKey, verifyAuthKey } from './hash.js';
 import { sendVerificationEmail } from './mailer.js';
+import { encryptDatabaseSecret, decryptDatabaseSecret } from './secret-crypto.js';
 
 export interface AuthContext {
   userId: string;
@@ -39,6 +40,17 @@ declare module 'fastify' {
     authContext?: AuthContext;
   }
 }
+
+interface FailedLoginTracker {
+  attempts: number;
+  lockedUntil: number;
+}
+const loginAttempts = new Map<string, FailedLoginTracker>();
+const twoFactorAttempts = new Map<string, number>();
+
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes lockout
+const MAX_2FA_ATTEMPTS = 5;
 
 export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): void => {
   // Authentication middleware helper
@@ -233,16 +245,35 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     }
 
     const { email, authKeyHash, deviceId, deviceName } = parsed.data;
+    const normalizedEmail = email.trim().toLowerCase();
+    const now = Date.now();
+    const tracker = loginAttempts.get(normalizedEmail);
+
+    if (tracker && tracker.lockedUntil > now) {
+      const remainingMinutes = Math.ceil((tracker.lockedUntil - now) / 60000);
+      return reply.status(429).send({
+        error: `Too many failed login attempts. Please wait ${remainingMinutes} minute(s) before trying again.`,
+      });
+    }
 
     const user = db.getUserByEmail(email);
     if (!user) {
+      const attempts = (tracker?.attempts || 0) + 1;
+      const lockedUntil = attempts >= MAX_LOGIN_ATTEMPTS ? now + LOGIN_LOCKOUT_MS : 0;
+      loginAttempts.set(normalizedEmail, { attempts, lockedUntil });
       return reply.status(401).send({ error: 'Invalid email or password.' });
     }
 
     const isValid = verifyAuthKey(authKeyHash, user.auth_key_hash, user.auth_key_salt);
     if (!isValid) {
+      const attempts = (tracker?.attempts || 0) + 1;
+      const lockedUntil = attempts >= MAX_LOGIN_ATTEMPTS ? now + LOGIN_LOCKOUT_MS : 0;
+      loginAttempts.set(normalizedEmail, { attempts, lockedUntil });
       return reply.status(401).send({ error: 'Invalid email or password.' });
     }
+
+    // Clear failed login attempts on success
+    loginAttempts.delete(normalizedEmail);
 
     // Check if 2FA is required
     if (user.totp_enabled === 1 && user.totp_secret) {
@@ -303,12 +334,19 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
       return reply.status(401).send({ error: '2FA session has expired. Please log in again.' });
     }
 
+    const currentAttempts = twoFactorAttempts.get(challenge.sub) || 0;
+    if (currentAttempts >= MAX_2FA_ATTEMPTS) {
+      twoFactorAttempts.delete(challenge.sub);
+      return reply.status(429).send({ error: 'Too many invalid 2FA verification attempts. Please log in again.' });
+    }
+
     const user = db.getUserById(challenge.sub);
     if (!user || !user.totp_secret) {
       return reply.status(401).send({ error: 'User account not found.' });
     }
 
-    let isCodeValid = verifyTotpCode(user.totp_secret, code);
+    const decryptedTotpSecret = decryptDatabaseSecret(user.totp_secret);
+    let isCodeValid = verifyTotpCode(decryptedTotpSecret, code);
 
     // If TOTP failed, check backup codes
     if (!isCodeValid && user.backup_codes) {
@@ -327,8 +365,17 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     }
 
     if (!isCodeValid) {
-      return reply.status(401).send({ error: 'Invalid two-factor authentication code.' });
+      const nextAttempts = currentAttempts + 1;
+      twoFactorAttempts.set(challenge.sub, nextAttempts);
+      const remaining = MAX_2FA_ATTEMPTS - nextAttempts;
+      if (remaining <= 0) {
+        return reply.status(429).send({ error: 'Too many invalid 2FA verification attempts. Please log in again.' });
+      }
+      return reply.status(401).send({ error: `Invalid two-factor authentication code. ${remaining} attempt(s) remaining.` });
     }
+
+    // Clear 2FA failed attempts on success
+    twoFactorAttempts.delete(challenge.sub);
 
     // Register device
     db.upsertDevice({
@@ -409,7 +456,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
       );
 
       db.updateUser(userId, {
-        totp_secret: secret,
+        totp_secret: encryptDatabaseSecret(secret),
         totp_enabled: 1,
         backup_codes: JSON.stringify(hashedBackupCodes),
       });
@@ -436,7 +483,8 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
         return reply.status(400).send({ error: '2FA is not enabled on this account.' });
       }
 
-      let isCodeValid = verifyTotpCode(user.totp_secret, code);
+      const decryptedSecret = decryptDatabaseSecret(user.totp_secret);
+      let isCodeValid = verifyTotpCode(decryptedSecret, code);
       if (!isCodeValid && user.backup_codes) {
         try {
           const storedHashedCodes = JSON.parse(user.backup_codes) as string[];

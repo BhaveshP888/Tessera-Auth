@@ -3,6 +3,8 @@ import path from 'node:path';
 import { describe, expect, it } from 'bun:test';
 import type { SyncDelta } from '@tessera/schemas';
 import { buildServer } from '../src/app.js';
+import { signAccessToken } from '../src/auth/jwt.js';
+import { TesseraDatabase } from '../src/db/sqlite.js';
 
 describe('Server Relay & Proxy', () => {
   it('returns health check status', async () => {
@@ -18,7 +20,16 @@ describe('Server Relay & Proxy', () => {
   });
 
   it('handles encrypted delta push and cursor-based pull', async () => {
-    const app = await buildServer();
+    const db = new TesseraDatabase(':memory:');
+    db.createUser({
+      id: 'user-test-relay',
+      email: 'test@example.com',
+      authKeyHash: 'dummyhash',
+      authKeySalt: 'dummysalt',
+      wrappedMasterKey: 'dummywrapped',
+      wrappedMasterKeyNonce: 'dummynonce',
+    });
+    const app = await buildServer({ db });
 
     const sampleDelta: SyncDelta = {
       id: 'd9b2d63d-a23d-4c3e-9f37-123456789abc',
@@ -32,10 +43,25 @@ describe('Server Relay & Proxy', () => {
       createdAt: new Date().toISOString(),
     };
 
-    // 1. Push delta
+    // 0. Unauthenticated sync push returns 401
+    const unauthRes = await app.inject({
+      method: 'POST',
+      url: '/api/sync/push',
+      payload: {
+        deviceId: 'laptop-primary',
+        deltas: [sampleDelta],
+        clientCursor: 0,
+      },
+    });
+    expect(unauthRes.statusCode).toBe(401);
+
+    const testToken = signAccessToken('user-test-relay', 'test@example.com', 'laptop-primary');
+
+    // 1. Authenticated Push delta
     const pushRes = await app.inject({
       method: 'POST',
       url: '/api/sync/push',
+      headers: { authorization: `Bearer ${testToken}` },
       payload: {
         deviceId: 'laptop-primary',
         deltas: [sampleDelta],
@@ -47,12 +73,13 @@ describe('Server Relay & Proxy', () => {
     const pushBody = JSON.parse(pushRes.body);
     expect(pushBody.count).toBe(1);
 
-    // 2. Pull delta
+    // 2. Authenticated Pull delta
     const pullRes = await app.inject({
       method: 'POST',
       url: '/api/sync/pull',
+      headers: { authorization: `Bearer ${testToken}` },
       payload: {
-        deviceId: 'phone-secondary',
+        deviceId: 'laptop-primary',
         sinceCursor: 0,
         limit: 10,
       },
