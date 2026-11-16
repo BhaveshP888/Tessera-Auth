@@ -1,6 +1,5 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import sensible from '@fastify/sensible';
 import fastifyStatic from '@fastify/static';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -34,8 +33,8 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
   });
 
 
-  await app.register(cors, {
-    origin: (origin, cb) => {
+  await app.register(cors as unknown as Parameters<typeof app.register>[0], {
+    origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
       if (!origin) return cb(null, true);
       const configuredOrigin = process.env['CORS_ORIGIN'];
       if (configuredOrigin) {
@@ -59,7 +58,6 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
     credentials: true,
   });
-  await app.register(sensible);
 
   // Serve static web bundle if present (for single-container deployment; skipped in Vercel serverless)
   if (!process.env['VERCEL']) {
@@ -73,11 +71,11 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
     const staticRoot = candidatePaths.find((p) => fs.existsSync(p));
 
     if (staticRoot) {
-      await app.register(fastifyStatic, {
+      await app.register(fastifyStatic as unknown as Parameters<typeof app.register>[0], {
         root: staticRoot,
         prefix: '/',
         wildcard: true,
-        setHeaders: (res, filePath) => {
+        setHeaders: (res: { setHeader: (name: string, value: string) => void }, filePath: string) => {
           if (filePath.endsWith('index.html') || filePath.endsWith('.html')) {
             res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
             res.setHeader('Pragma', 'no-cache');
@@ -99,7 +97,7 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
         }
 
         reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
-        return reply.sendFile('index.html');
+        return (reply as unknown as { sendFile: (file: string) => unknown }).sendFile('index.html');
       });
     }
   }
@@ -141,7 +139,7 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
 
     const parsed = SyncPushRequestSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.badRequest(parsed.error.message);
+      return reply.status(400).send({ error: parsed.error.message });
     }
 
     const { deltas } = parsed.data;
@@ -165,7 +163,7 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
 
     const parsed = SyncPullRequestSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.badRequest(parsed.error.message);
+      return reply.status(400).send({ error: parsed.error.message });
     }
 
     const { sinceCursor, limit } = parsed.data;
@@ -189,7 +187,7 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
 
     const parsed = RegisteredDeviceSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.badRequest(parsed.error.message);
+      return reply.status(400).send({ error: parsed.error.message });
     }
 
     if (principal === 'RELAY_API_KEY') {
@@ -222,14 +220,17 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
   });
 
   // Privacy Reader Proxy: Metadata & OG scraper (supports GET & POST)
-  const handleMetadataProxy = async (rawTargetUrl: string | undefined, reply: any) => {
+  const handleMetadataProxy = async (
+    rawTargetUrl: string | undefined,
+    reply: { status: (code: number) => { send: (payload: unknown) => unknown } }
+  ) => {
     if (!rawTargetUrl || !rawTargetUrl.trim()) {
-      return reply.badRequest('Parameter "url" is required');
+      return reply.status(400).send({ error: 'Parameter "url" is required' });
     }
 
     const { data, error } = await urlMetadataResolver.resolve(rawTargetUrl);
     if (error || !data) {
-      return reply.badRequest(error || 'Failed to fetch metadata');
+      return reply.status(400).send({ error: error || 'Failed to fetch metadata' });
     }
 
     return { data, metadata: data };
@@ -254,7 +255,7 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
   app.post('/api/auth/register-options', async (request, reply) => {
     const body = request.body as { userId: string; username: string };
     if (!body.userId || !body.username) {
-      return reply.badRequest('userId and username are required');
+      return reply.status(400).send({ error: 'userId and username are required' });
     }
     const options = await getRegistrationOptions(body.userId, body.username);
     return options;
@@ -272,7 +273,7 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
       const options = await getAuthenticationOptions(body.userId);
       return options;
     } catch (err) {
-      return reply.badRequest((err as Error).message);
+      return reply.status(400).send({ error: (err as Error).message });
     }
   });
 

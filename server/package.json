@@ -19,7 +19,7 @@
     "@tessera/core": "workspace:*",
     "@tessera/schemas": "workspace:*",
     "fastify": "^5.2.1",
-    "nodemailer": "^10.6.0",
+    "nodemailer": "^6.9.16",
     "zod": "^3.24.2"
   },
   "devDependencies": {

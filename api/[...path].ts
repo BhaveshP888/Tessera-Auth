@@ -34,7 +34,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const app = await getFastifyApp();
-    app.server.emit('request', req, res);
+    await new Promise<void>((resolve, reject) => {
+      res.on('finish', () => resolve());
+      res.on('close', () => resolve());
+      res.on('error', (err) => reject(err));
+      app.server.emit('request', req, res);
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
