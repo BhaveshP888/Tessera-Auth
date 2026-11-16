@@ -27,7 +27,11 @@ export interface BuildServerOptions {
 
 export const buildServer = async (options: BuildServerOptions = {}) => {
   const db = options.db || new TesseraDatabase();
-  await db.initTables();
+  try {
+    await db.initTables();
+  } catch (err) {
+    console.warn('[Tessera DB Warning] Table initialization deferred:', (err as Error).message);
+  }
   const app = Fastify({
     logger: false,
   });

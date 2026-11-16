@@ -1,4 +1,5 @@
 import { createClient, type Client } from '@libsql/client';
+import { createClient as createWebClient } from '@libsql/client/web';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -87,10 +88,25 @@ export class TesseraDatabase {
       url = `file:${path.resolve(url)}`;
     }
 
-    this.client = createClient({
-      url,
-      authToken: token,
-    });
+    if (url.startsWith('libsql:') || url.startsWith('http:') || url.startsWith('https:')) {
+      this.client = createWebClient({
+        url,
+        authToken: token,
+      }) as unknown as Client;
+    } else {
+      try {
+        this.client = createClient({
+          url,
+          authToken: token,
+        });
+      } catch (err) {
+        console.warn('[Tessera DB Warning] Local sqlite initialization failed (expected on Vercel without TURSO_DATABASE_URL):', (err as Error).message);
+        this.client = createWebClient({
+          url: 'https://placeholder.turso.io',
+          authToken: 'placeholder',
+        }) as unknown as Client;
+      }
+    }
   }
 
   public async initTables(): Promise<void> {
