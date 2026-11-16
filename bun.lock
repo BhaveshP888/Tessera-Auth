@@ -131,7 +131,7 @@
         "@tessera/core": "workspace:*",
         "@tessera/schemas": "workspace:*",
         "fastify": "^5.2.1",
-        "nodemailer": "^10.6.0",
+        "nodemailer": "^6.9.16",
         "zod": "^3.24.2",
       },
       "devDependencies": {
@@ -746,8 +746,6 @@
     "@tessera/server/@fastify/sensible": ["@fastify/sensible@6.0.5", "", { "dependencies": { "@lukeed/ms": "^2.0.2", "dequal": "^2.0.3", "fastify-plugin": "^6.0.0", "forwarded": "^0.2.0", "http-errors": "^2.0.0", "type-is": "^2.0.1", "vary": "^1.1.2" } }, "sha512-v4mGejwT6EJA2zd2rS6XwlyUSva2ILsqzG0aGkyrlS7l2jIpUgFACclSPN3kDijX//cf8+GutRLhJVKx3ae2Cw=="],
 
     "@tessera/server/fastify": ["fastify@5.12.0", "", { "dependencies": { "@fastify/ajv-compiler": "^4.0.5", "@fastify/error": "^4.0.0", "@fastify/fast-json-stringify-compiler": "^5.0.0", "@fastify/proxy-addr": "^5.0.0", "abstract-logging": "^2.0.1", "avvio": "^9.0.0", "fast-json-stringify": "^7.0.0", "find-my-way": "^9.6.0", "light-my-request": "^6.0.0", "pino": "^9.14.0 || ^10.1.0", "process-warning": "^5.1.0", "rfdc": "^1.3.1", "secure-json-parse": "^4.0.0", "semver": "^7.6.0", "toad-cache": "^3.7.0" } }, "sha512-A3RNEaDIHWaxFW8n8rNJaW1wQ+XAXuoU71llfUQJjuh5WaYLmKfRhhanaJBOx8m2EBPQkR6sDBovYdHNe9F6rA=="],
-
-    "@tessera/server/nodemailer": ["nodemailer@10.6.0", "", {}, "sha512-jWanL7D9GD3jvUDYKmoC5rWTiG8MnBgnN2yV68bgMKip1zUJhiSTyz7Eg+18y8sk5OvdVDzws5nZK5arSI4f5Q=="],
 
     "ajv/fast-uri": ["fast-uri@3.1.5", "", {}, "sha512-gHwA1O9LDIcKunMKhObS/HimwtehO1nPUECKAu5TpKgaO19fcWEl4bliWe1jWxVFvIXztJjjQ4L8XQ1EU9f7Jw=="],
 
