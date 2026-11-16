@@ -10,8 +10,8 @@
     "extensions/*"
   ],
   "scripts": {
-    "build": "turbo run build && bun -e \"import fs from 'node:fs'; if (fs.existsSync('apps/web/dist')) fs.cpSync('apps/web/dist', 'dist', { recursive: true });\"",
-    "vercel-build": "turbo run build && bun -e \"import fs from 'node:fs'; if (fs.existsSync('apps/web/dist')) fs.cpSync('apps/web/dist', 'dist', { recursive: true });\"",
+    "build": "turbo run build && bun -e \"import fs from 'node:fs'; if (fs.existsSync('apps/web/dist')) fs.cpSync('apps/web/dist', 'dist', { recursive: true });\" && bun build api/serverless.ts --target=node --outfile=api/[...path].js --external fastify --external \"@fastify/*\" --external \"@libsql/*\" --external nodemailer",
+    "vercel-build": "turbo run build && bun -e \"import fs from 'node:fs'; if (fs.existsSync('apps/web/dist')) fs.cpSync('apps/web/dist', 'dist', { recursive: true });\" && bun build api/serverless.ts --target=node --outfile=api/[...path].js --external fastify --external \"@fastify/*\" --external \"@libsql/*\" --external nodemailer",
     "dev": "turbo run dev",
     "test": "bun test",
     "typecheck": "turbo run typecheck"
