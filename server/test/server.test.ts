@@ -21,7 +21,7 @@ describe('Server Relay & Proxy', () => {
 
   it('handles encrypted delta push and cursor-based pull', async () => {
     const db = new TesseraDatabase(':memory:');
-    db.createUser({
+    await db.createUser({
       id: 'user-test-relay',
       email: 'test@example.com',
       authKeyHash: 'dummyhash',

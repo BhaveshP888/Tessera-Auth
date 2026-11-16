@@ -83,13 +83,13 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     const { email, purpose } = parsed.data;
 
     // Check existing email
-    const existing = db.getUserByEmail(email);
+    const existing = await db.getUserByEmail(email);
     if (existing) {
       return reply.status(409).send({ error: 'An account with this email already exists.' });
     }
 
     // Rate-limit resend cooldown (60 seconds)
-    const existingOtp = db.getEmailOtp(email);
+    const existingOtp = await db.getEmailOtp(email);
     if (existingOtp) {
       const elapsedMs = Date.now() - new Date(existingOtp.last_sent_at).getTime();
       const cooldownMs = 60 * 1000;
@@ -106,7 +106,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     const otpCodeHash = crypto.createHash('sha256').update(code).digest('hex');
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
-    db.upsertEmailOtp(email, otpCodeHash, expiresAt);
+    await db.upsertEmailOtp(email, otpCodeHash, expiresAt);
 
     const mailRes = await sendVerificationEmail({
       to: email,
@@ -141,13 +141,13 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     } = parsed.data;
 
     // Check existing email
-    const existing = db.getUserByEmail(email);
+    const existing = await db.getUserByEmail(email);
     if (existing) {
       return reply.status(409).send({ error: 'An account with this email already exists.' });
     }
 
     // Verify Email OTP
-    const otpRecord = db.getEmailOtp(email);
+    const otpRecord = await db.getEmailOtp(email);
     if (!otpRecord) {
       return reply.status(400).send({
         error: 'No verification code found. Please request a verification code first.',
@@ -155,14 +155,14 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     }
 
     if (new Date(otpRecord.expires_at) < new Date()) {
-      db.deleteEmailOtp(email);
+      await db.deleteEmailOtp(email);
       return reply.status(400).send({
         error: 'Verification code has expired. Please request a new code.',
       });
     }
 
     if (otpRecord.attempts >= 5) {
-      db.deleteEmailOtp(email);
+      await db.deleteEmailOtp(email);
       return reply.status(429).send({
         error: 'Too many incorrect attempts. This code has been invalidated. Please request a new code.',
       });
@@ -175,7 +175,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     );
 
     if (!isMatch) {
-      const attempts = db.incrementOtpAttempts(email);
+      const attempts = await db.incrementOtpAttempts(email);
       const remaining = 5 - attempts;
       return reply.status(400).send({
         error:
@@ -186,13 +186,13 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     }
 
     // OTP verified successfully -> Burn OTP immediately
-    db.deleteEmailOtp(email);
+    await db.deleteEmailOtp(email);
 
     // Hash authKeyHash using Argon2id
     const { hashHex, saltHex } = hashAuthKey(authKeyHash);
     const userId = crypto.randomUUID();
 
-    const user = db.createUser({
+    const user = await db.createUser({
       id: userId,
       email,
       authKeyHash: hashHex,
@@ -202,7 +202,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     });
 
     // Register initial device
-    db.upsertDevice({
+    await db.upsertDevice({
       id: deviceId,
       userId: user.id,
       name: deviceName || 'Primary Device',
@@ -214,7 +214,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     const refreshTokenHash = hashRefreshToken(refreshToken);
 
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-    db.createSession({
+    await db.createSession({
       id: crypto.randomUUID(),
       userId: user.id,
       deviceId,
@@ -256,7 +256,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
       });
     }
 
-    const user = db.getUserByEmail(email);
+    const user = await db.getUserByEmail(email);
     if (!user) {
       const attempts = (tracker?.attempts || 0) + 1;
       const lockedUntil = attempts >= MAX_LOGIN_ATTEMPTS ? now + LOGIN_LOCKOUT_MS : 0;
@@ -285,7 +285,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     }
 
     // Register/update device
-    db.upsertDevice({
+    await db.upsertDevice({
       id: deviceId,
       userId: user.id,
       name: deviceName || 'Device',
@@ -297,7 +297,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     const refreshTokenHash = hashRefreshToken(refreshToken);
 
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-    db.createSession({
+    await db.createSession({
       id: crypto.randomUUID(),
       userId: user.id,
       deviceId,
@@ -340,7 +340,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
       return reply.status(429).send({ error: 'Too many invalid 2FA verification attempts. Please log in again.' });
     }
 
-    const user = db.getUserById(challenge.sub);
+    const user = await db.getUserById(challenge.sub);
     if (!user || !user.totp_secret) {
       return reply.status(401).send({ error: 'User account not found.' });
     }
@@ -359,7 +359,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
           isCodeValid = true;
           // Burn the used backup code
           storedHashedCodes.splice(codeIndex, 1);
-          db.updateUser(user.id, { backup_codes: JSON.stringify(storedHashedCodes) });
+          await db.updateUser(user.id, { backup_codes: JSON.stringify(storedHashedCodes) });
         }
       } catch {}
     }
@@ -378,7 +378,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     twoFactorAttempts.delete(challenge.sub);
 
     // Register device
-    db.upsertDevice({
+    await db.upsertDevice({
       id: deviceId,
       userId: user.id,
       name: 'Authenticated Device',
@@ -390,7 +390,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     const refreshTokenHash = hashRefreshToken(refreshToken);
 
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-    db.createSession({
+    await db.createSession({
       id: crypto.randomUUID(),
       userId: user.id,
       deviceId,
@@ -455,7 +455,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
         crypto.createHash('sha256').update(c.toLowerCase().trim()).digest('hex'),
       );
 
-      db.updateUser(userId, {
+      await db.updateUser(userId, {
         totp_secret: encryptDatabaseSecret(secret),
         totp_enabled: 1,
         backup_codes: JSON.stringify(hashedBackupCodes),
@@ -477,7 +477,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
 
       const { code } = parsed.data;
       const { userId } = request.authContext!;
-      const user = db.getUserById(userId);
+      const user = await db.getUserById(userId);
 
       if (!user || !user.totp_secret) {
         return reply.status(400).send({ error: '2FA is not enabled on this account.' });
@@ -499,7 +499,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
         return reply.status(400).send({ error: 'Invalid 2FA confirmation code.' });
       }
 
-      db.updateUser(userId, {
+      await db.updateUser(userId, {
         totp_secret: null,
         totp_enabled: 0,
         backup_codes: null,
@@ -518,30 +518,30 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
 
     const { refreshToken } = parsed.data;
     const tokenHash = hashRefreshToken(refreshToken);
-    const session = db.getSessionByTokenHash(tokenHash);
+    const session = await db.getSessionByTokenHash(tokenHash);
 
     if (!session) {
       return reply.status(401).send({ error: 'Invalid or revoked refresh token.' });
     }
 
     if (new Date(session.expires_at) < new Date()) {
-      db.deleteSessionByTokenHash(tokenHash);
+      await db.deleteSessionByTokenHash(tokenHash);
       return reply.status(401).send({ error: 'Refresh token has expired. Please log in again.' });
     }
 
-    const user = db.getUserById(session.user_id);
+    const user = await db.getUserById(session.user_id);
     if (!user) {
-      db.deleteSessionByTokenHash(tokenHash);
+      await db.deleteSessionByTokenHash(tokenHash);
       return reply.status(401).send({ error: 'User not found.' });
     }
 
     // Rotate refresh token
-    db.deleteSessionByTokenHash(tokenHash);
+    await db.deleteSessionByTokenHash(tokenHash);
     const newRefreshToken = generateRefreshToken();
     const newRefreshTokenHash = hashRefreshToken(newRefreshToken);
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    db.createSession({
+    await db.createSession({
       id: crypto.randomUUID(),
       userId: user.id,
       deviceId: session.device_id,
@@ -564,14 +564,14 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = (request.body || {}) as { refreshToken?: string };
       if (body.refreshToken) {
-        db.deleteSessionByTokenHash(hashRefreshToken(body.refreshToken));
+        await db.deleteSessionByTokenHash(hashRefreshToken(body.refreshToken));
       }
 
       const authHeader = request.headers.authorization;
       if (authHeader && authHeader.startsWith('Bearer ')) {
         const payload = verifyAccessToken(authHeader.slice(7).trim());
         if (payload) {
-          db.deleteSessionsForUser(payload.sub);
+          await db.deleteSessionsForUser(payload.sub);
         }
       }
 
@@ -585,7 +585,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
     { preHandler: [requireAuth] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { userId } = request.authContext!;
-      const user = db.getUserById(userId);
+      const user = await db.getUserById(userId);
       if (!user) {
         return reply.status(404).send({ error: 'User not found' });
       }
@@ -614,7 +614,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
       const { oldAuthKeyHash, newAuthKeyHash, newWrappedMasterKey, newWrappedMasterKeyNonce } =
         parsed.data;
       const { userId } = request.authContext!;
-      const user = db.getUserById(userId);
+      const user = await db.getUserById(userId);
 
       if (!user) {
         return reply.status(404).send({ error: 'User not found' });
@@ -627,7 +627,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
 
       const { hashHex, saltHex } = hashAuthKey(newAuthKeyHash);
 
-      db.updateUser(user.id, {
+      await db.updateUser(user.id, {
         auth_key_hash: hashHex,
         auth_key_salt: saltHex,
         wrapped_master_key: newWrappedMasterKey,
@@ -635,7 +635,7 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
       });
 
       // Revoke all sessions to enforce re-login with new password
-      db.deleteSessionsForUser(user.id);
+      await db.deleteSessionsForUser(user.id);
 
       return reply.send({ success: true });
     },

@@ -28,6 +28,7 @@ export interface BuildServerOptions {
 
 export const buildServer = async (options: BuildServerOptions = {}) => {
   const db = options.db || new TesseraDatabase();
+  await db.initTables();
   const app = Fastify({
     logger: false,
   });
@@ -148,7 +149,7 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
       return result;
     }
 
-    const result = db.appendUserDeltas(principal.userId, deltas);
+    const result = await db.appendUserDeltas(principal.userId, deltas);
     return result;
   });
 
@@ -172,7 +173,7 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
       return result;
     }
 
-    const result = db.getUserDeltasSince(principal.userId, sinceCursor, limit);
+    const result = await db.getUserDeltasSince(principal.userId, sinceCursor, limit);
     return result;
   });
 
@@ -194,7 +195,7 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
       return { success: true };
     }
 
-    db.upsertDevice({
+    await db.upsertDevice({
       id: parsed.data.id,
       userId: principal.userId,
       name: parsed.data.name,
@@ -214,7 +215,8 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
       return { devices: relayStore.listDevices() };
     }
 
-    return { devices: db.listDevicesForUser(principal.userId) };
+    const devices = await db.listDevicesForUser(principal.userId);
+    return { devices };
   });
 
   // Privacy Reader Proxy: Metadata & OG scraper (supports GET & POST)
