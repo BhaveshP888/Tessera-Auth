@@ -3,7 +3,9 @@ import {
   generateVaultSalt,
   generateVaultMasterKey,
   derivePinKey,
+  derivePinKeyAsync,
   deriveVaultMasterKeyFromPassphrase,
+  deriveVaultMasterKeyFromPassphraseAsync,
   computeSecretHash,
   wrapVaultKey,
   unwrapVaultKey,
@@ -37,6 +39,38 @@ export class VaultSessionManager implements IVaultSessionManager {
 
   public getVaultMasterKey(): Uint8Array | null {
     return this.activeVaultMasterKey;
+  }
+
+  /**
+   * Hardware-accelerated asynchronous unlock using Web Crypto API.
+   */
+  public async unlockAsync(pin: string, config: VaultConfig): Promise<boolean> {
+    if (!config.isConfigured || !config.pinSalt || !config.encryptedVaultKeyWithPin) {
+      return false;
+    }
+
+    if (!isValidPin(pin)) {
+      return false;
+    }
+
+    const salt = hexToUint8Array(config.pinSalt);
+    const pinKek = await derivePinKeyAsync(pin, salt);
+    const parts = (config.encryptedVaultKeyWithPin || '').split(':');
+    if (parts.length !== 2) return false;
+
+    const [ciphertextB64, nonceB64] = parts;
+    const unwrapResult = unwrapVaultKey(
+      ciphertextB64!,
+      nonceB64!,
+      pinKek,
+    );
+
+    if (!unwrapResult.data) {
+      return false;
+    }
+
+    this.activeVaultMasterKey = unwrapResult.data;
+    return true;
   }
 
   /**

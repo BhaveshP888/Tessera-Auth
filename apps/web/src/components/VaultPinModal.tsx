@@ -8,7 +8,9 @@ import { useUIStore } from '../store/useUIStore.js';
 export interface VaultPinModalProps {
   isOpen?: boolean;
   onClose?: () => void;
-  onUnlock?: (pin: string) => { success: boolean; error?: string; remainingAttempts?: number; wiped?: boolean };
+  onUnlock?: (pin: string) =>
+    | { success: boolean; error?: string; remainingAttempts?: number; wiped?: boolean }
+    | Promise<{ success: boolean; error?: string; remainingAttempts?: number; wiped?: boolean }>;
   failedAttempts?: number;
   wipeAfterAttempts?: number;
 }
@@ -81,13 +83,13 @@ export const VaultPinModal: React.FC<VaultPinModalProps> = (props) => {
     }
   };
 
-  const handleAttemptUnlock = (pin: string) => {
+  const handleAttemptUnlock = async (pin: string) => {
     if (!isValidPin(pin)) {
       setErrorMessage('PIN must be exactly 7 numeric digits.');
       return;
     }
 
-    const res = onUnlock(pin);
+    const res = await onUnlock(pin);
     if (res.success) {
       onClose();
     } else {

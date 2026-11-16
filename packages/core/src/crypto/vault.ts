@@ -61,6 +61,53 @@ export const derivePinKey = (pin: string, salt: Uint8Array): Uint8Array => {
 };
 
 /**
+ * Helper to run PBKDF2 with Web Crypto API if available, falling back to noble.
+ */
+async function pbkdf2Async(
+  passwordBytes: Uint8Array,
+  salt: Uint8Array,
+  iterations: number,
+  dkLen = 32,
+): Promise<Uint8Array> {
+  if (typeof globalThis !== 'undefined' && globalThis.crypto?.subtle) {
+    try {
+      const key = await globalThis.crypto.subtle.importKey(
+        'raw',
+        passwordBytes as unknown as BufferSource,
+        { name: 'PBKDF2' },
+        false,
+        ['deriveBits'],
+      );
+      const bits = await globalThis.crypto.subtle.deriveBits(
+        {
+          name: 'PBKDF2',
+          salt: salt as unknown as BufferSource,
+          iterations,
+          hash: 'SHA-256',
+        },
+        key,
+        dkLen * 8,
+      );
+      return new Uint8Array(bits);
+    } catch {
+      return pbkdf2(sha256, passwordBytes, salt, { c: iterations, dkLen });
+    }
+  }
+  return pbkdf2(sha256, passwordBytes, salt, { c: iterations, dkLen });
+}
+
+/**
+ * Asynchronous hardware-accelerated version of derivePinKey using Web Crypto API.
+ */
+export const derivePinKeyAsync = async (pin: string, salt: Uint8Array): Promise<Uint8Array> => {
+  if (!isValidPin(pin)) {
+    throw new Error('PIN must be exactly 7 numeric digits');
+  }
+  const pinBytes = new TextEncoder().encode(pin);
+  return pbkdf2Async(pinBytes, salt, PIN_PBKDF2_ITERATIONS, 32);
+};
+
+/**
  * Derives a 256-bit Key Encryption Key (KEK) from a strong sync passphrase using PBKDF2-SHA256 (200k rounds).
  */
 export const derivePassphraseKey = (passphrase: string, salt: Uint8Array): Uint8Array => {
@@ -69,6 +116,20 @@ export const derivePassphraseKey = (passphrase: string, salt: Uint8Array): Uint8
   }
   const passBytes = new TextEncoder().encode(passphrase);
   return pbkdf2(sha256, passBytes, salt, { c: PASSPHRASE_PBKDF2_ITERATIONS, dkLen: 32 });
+};
+
+/**
+ * Asynchronous hardware-accelerated version of derivePassphraseKey using Web Crypto API.
+ */
+export const derivePassphraseKeyAsync = async (
+  passphrase: string,
+  salt: Uint8Array,
+): Promise<Uint8Array> => {
+  if (!isValidSyncPassphrase(passphrase)) {
+    throw new Error('Passphrase must be at least 12 characters long and not purely numeric');
+  }
+  const passBytes = new TextEncoder().encode(passphrase);
+  return pbkdf2Async(passBytes, salt, PASSPHRASE_PBKDF2_ITERATIONS, 32);
 };
 
 /**
@@ -88,11 +149,35 @@ export const deriveVaultMasterKeyFromPassphrase = (
 };
 
 /**
+ * Asynchronous hardware-accelerated version of deriveVaultMasterKeyFromPassphrase using Web Crypto API.
+ */
+export const deriveVaultMasterKeyFromPassphraseAsync = async (
+  passphrase: string,
+  masterKey: Uint8Array,
+): Promise<Uint8Array> => {
+  if (!isValidSyncPassphrase(passphrase)) {
+    throw new Error('Passphrase must be at least 12 characters long and not purely numeric');
+  }
+  const passBytes = new TextEncoder().encode(`tessera_vault_v1:${passphrase}`);
+  const salt = masterKey.slice(0, 16);
+  return pbkdf2Async(passBytes, salt, PASSPHRASE_PBKDF2_ITERATIONS, 32);
+};
+
+/**
  * Computes a verification hash for checking PIN correctness.
  */
 export const computeSecretHash = (secret: string, salt: Uint8Array): string => {
   const bytes = new TextEncoder().encode(secret);
   const derived = pbkdf2(sha256, bytes, salt, { c: 10_000, dkLen: 32 });
+  return uint8ArrayToHex(derived);
+};
+
+/**
+ * Asynchronous hardware-accelerated version of computeSecretHash using Web Crypto API.
+ */
+export const computeSecretHashAsync = async (secret: string, salt: Uint8Array): Promise<string> => {
+  const bytes = new TextEncoder().encode(secret);
+  const derived = await pbkdf2Async(bytes, salt, 10_000, 32);
   return uint8ArrayToHex(derived);
 };
 

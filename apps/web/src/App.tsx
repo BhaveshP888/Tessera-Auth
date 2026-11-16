@@ -1,20 +1,22 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, Suspense, lazy } from 'react';
 import { useLibraryStore, useFilteredBookmarks } from './store/useLibraryStore.js';
 import { useUIStore } from './store/useUIStore.js';
 import { useAuthStore } from './store/useAuthStore.js';
 import { Header } from './components/Header.js';
 import { Sidebar } from './components/Sidebar.js';
 import { BookmarkList } from './components/BookmarkList.js';
-import { AddBookmarkModal } from './components/AddBookmarkModal.js';
-import { KeyManagementModal } from './components/KeyManagementModal.js';
-import { AuditLogModal } from './components/AuditLogModal.js';
-import { ExtensionManagerModal } from './components/ExtensionManagerModal.js';
-import { VaultPinModal } from './components/VaultPinModal.js';
-import { VaultSettingsModal } from './components/VaultSettingsModal.js';
-import { CommandPalette } from './components/CommandPalette.js';
-import { AuthModal } from './components/AuthModal.js';
-import { TwoFactorSettingsModal } from './components/TwoFactorSettingsModal.js';
 import { Lock, Shield, KeyRound } from 'lucide-react';
+
+// Lazy-loaded modals for fast initial page load and code splitting
+const AddBookmarkModal = lazy(() => import('./components/AddBookmarkModal.js').then((m) => ({ default: m.AddBookmarkModal })));
+const KeyManagementModal = lazy(() => import('./components/KeyManagementModal.js').then((m) => ({ default: m.KeyManagementModal })));
+const AuditLogModal = lazy(() => import('./components/AuditLogModal.js').then((m) => ({ default: m.AuditLogModal })));
+const ExtensionManagerModal = lazy(() => import('./components/ExtensionManagerModal.js').then((m) => ({ default: m.ExtensionManagerModal })));
+const VaultPinModal = lazy(() => import('./components/VaultPinModal.js').then((m) => ({ default: m.VaultPinModal })));
+const VaultSettingsModal = lazy(() => import('./components/VaultSettingsModal.js').then((m) => ({ default: m.VaultSettingsModal })));
+const CommandPalette = lazy(() => import('./components/CommandPalette.js').then((m) => ({ default: m.CommandPalette })));
+const AuthModal = lazy(() => import('./components/AuthModal.js').then((m) => ({ default: m.AuthModal })));
+const TwoFactorSettingsModal = lazy(() => import('./components/TwoFactorSettingsModal.js').then((m) => ({ default: m.TwoFactorSettingsModal })));
 
 export const App: React.FC = () => {
   const activeSection = useLibraryStore((s) => s.activeSection);
@@ -202,16 +204,18 @@ export const App: React.FC = () => {
         </main>
       </div>
 
-      {/* Modals & Command Palette */}
-      <CommandPalette />
-      <AddBookmarkModal />
-      <KeyManagementModal />
-      <AuditLogModal />
-      <ExtensionManagerModal />
-      <VaultPinModal />
-      <VaultSettingsModal />
-      <AuthModal />
-      <TwoFactorSettingsModal />
+      {/* Modals & Command Palette (Lazy-loaded on demand) */}
+      <Suspense fallback={null}>
+        <CommandPalette />
+        <AddBookmarkModal />
+        <KeyManagementModal />
+        <AuditLogModal />
+        <ExtensionManagerModal />
+        <VaultPinModal />
+        <VaultSettingsModal />
+        <AuthModal />
+        <TwoFactorSettingsModal />
+      </Suspense>
     </div>
   );
 };

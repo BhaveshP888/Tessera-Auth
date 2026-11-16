@@ -148,7 +148,7 @@ export interface LibraryState {
     autoLockMinutes?: number,
   ) => { success: boolean; error?: string };
   wipeVaultData: () => void;
-  unlockVault: (pin: string) => VaultUnlockResult;
+  unlockVault: (pin: string) => VaultUnlockResult | Promise<VaultUnlockResult>;
   lockVault: () => void;
   enableVaultSync: (passphrase: string, userPin: string) => { success: boolean; error?: string };
   disableVaultSync: () => void;
@@ -263,6 +263,26 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
   },
 
   unlockVault: (pin) => {
+    if (typeof globalThis !== 'undefined' && globalThis.crypto?.subtle) {
+      return (async () => {
+        const res = await engine.unlockVaultAsync(pin);
+        set({
+          vaultConfig: engine.getVaultConfig(),
+          isVaultUnlocked: engine.isVaultUnlocked(),
+          ...(res.success ? { activeSection: 'vault' as const } : {}),
+        });
+        if (res.success) {
+          get().logAudit('vault_unlocked', 'success', {});
+        } else if (res.wiped) {
+          get().logAudit('vault_wiped', 'error', { reason: 'max_failed_attempts_exceeded' });
+        } else {
+          get().logAudit('vault_pin_failed', 'warning', {
+            remainingAttempts: res.remainingAttempts,
+          });
+        }
+        return res;
+      })();
+    }
     const res = engine.unlockVault(pin);
     set({
       vaultConfig: engine.getVaultConfig(),

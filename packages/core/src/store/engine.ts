@@ -561,6 +561,53 @@ export class LocalStoreEngine {
     };
   }
 
+  public async unlockVaultAsync(pin: string, externalConfig?: VaultConfig): Promise<VaultUnlockResult> {
+    const activeConfig = externalConfig || this.vaultConfig;
+    if (!activeConfig.isConfigured) {
+      return {
+        success: false,
+        error: 'Private Vault is not configured.',
+        remainingAttempts: 0,
+        wiped: false,
+      };
+    }
+
+    const success = await this.vaultSession.unlockAsync(pin, activeConfig);
+    if (success) {
+      this.vaultConfig = { ...activeConfig, failedAttempts: 0 };
+      this.persist('vaultConfig', this.vaultConfig);
+      this.unsealVaultBookmarksInMemory();
+      this.armAutoLockTimer();
+      this.notify();
+      return { success: true };
+    }
+
+    // Failed attempt calculation and auto-wipe
+    const newFailed = (activeConfig.failedAttempts || 0) + 1;
+    const wipeThreshold = activeConfig.wipeAfterAttempts || 5;
+
+    if (newFailed >= wipeThreshold) {
+      this.wipeVault();
+      return {
+        success: false,
+        error: 'Vault permanently wiped due to too many failed attempts.',
+        remainingAttempts: 0,
+        wiped: true,
+      };
+    }
+
+    const remaining = wipeThreshold - newFailed;
+    this.vaultConfig = { ...activeConfig, failedAttempts: newFailed };
+    this.persist('vaultConfig', this.vaultConfig);
+    this.notify();
+    return {
+      success: false,
+      error: 'Incorrect 7-digit PIN.',
+      remainingAttempts: remaining,
+      wiped: false,
+    };
+  }
+
   public lockVault(): void {
     this.clearAutoLockTimer();
 

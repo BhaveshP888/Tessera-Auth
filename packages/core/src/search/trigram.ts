@@ -64,6 +64,20 @@ export const isSubsequence = (pattern: string, text: string): boolean => {
  */
 export const calculateMatchScore = (query: string, text: string): number => {
   const q = query.toLowerCase().trim();
+  const queryTokens = q.split(/\s+/).filter(Boolean);
+  const queryTrigrams = q.length >= 3 ? extractTrigrams(q) : null;
+  return calculateMatchScorePrepared(q, queryTokens, queryTrigrams, text);
+};
+
+/**
+ * Fast optimized matcher reusing precomputed query trigrams and tokens across library items.
+ */
+export const calculateMatchScorePrepared = (
+  q: string,
+  queryTokens: string[],
+  queryTrigrams: Set<string> | null,
+  text: string,
+): number => {
   const t = text.toLowerCase().trim();
 
   if (!q || !t) return 0.0;
@@ -89,7 +103,6 @@ export const calculateMatchScore = (query: string, text: string): number => {
   }
 
   // 4. Multi-token query match (e.g., "road sh")
-  const queryTokens = q.split(/\s+/).filter(Boolean);
   if (queryTokens.length > 1) {
     const allTokensMatch = queryTokens.every((token) => t.includes(token));
     if (allTokensMatch) {
@@ -102,13 +115,20 @@ export const calculateMatchScore = (query: string, text: string): number => {
     return 0.50;
   }
 
-  // 6. Trigram / Fuzzy match for typos on longer words
-  if (q.length >= 3) {
+  // 6. Trigram / Fuzzy match for typos on longer words (reusing precomputed query trigrams)
+  if (queryTrigrams && queryTrigrams.size > 0) {
     let bestWordScore = 0;
     for (const w of words) {
       if (w.length >= 3) {
-        const score = calculateTrigramSimilarity(q, w);
-        if (score > bestWordScore) bestWordScore = score;
+        const triW = extractTrigrams(w);
+        if (triW.size > 0) {
+          let intersectionCount = 0;
+          for (const tri of queryTrigrams) {
+            if (triW.has(tri)) intersectionCount++;
+          }
+          const score = (2 * intersectionCount) / (queryTrigrams.size + triW.size);
+          if (score > bestWordScore) bestWordScore = score;
+        }
       }
     }
     if (bestWordScore >= 0.4) {
@@ -133,10 +153,14 @@ export const fuzzyRankItems = <T>(
     return items.map((item) => ({ item, score: 1.0 }));
   }
 
+  const q = trimmed.toLowerCase();
+  const queryTokens = q.split(/\s+/).filter(Boolean);
+  const queryTrigrams = q.length >= 3 ? extractTrigrams(q) : null;
+
   return items
     .map((item) => {
       const text = getText(item);
-      const score = calculateMatchScore(trimmed, text);
+      const score = calculateMatchScorePrepared(q, queryTokens, queryTrigrams, text);
       return { item, score };
     })
     .filter((entry) => entry.score >= minThreshold)
