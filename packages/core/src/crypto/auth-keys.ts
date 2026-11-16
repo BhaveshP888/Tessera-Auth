@@ -66,6 +66,70 @@ export const deriveAuthAndEncryptionKeys = (
 };
 
 /**
+ * Asynchronous hardware-accelerated version of deriveAuthAndEncryptionKeys.
+ * Utilizes the browser/runtime Web Cryptography API (crypto.subtle) when available,
+ * performing PBKDF2 in native C++ via hardware SIMD instructions in ~50-100ms
+ * instead of freezing the JavaScript event loop for 1-2 minutes.
+ */
+export const deriveAuthAndEncryptionKeysAsync = async (
+  email: string,
+  password: string,
+  iterations = DEFAULT_AUTH_PBKDF2_ROUNDS,
+): Promise<DerivedAuthKeys> => {
+  const normalizedEmail = email.trim().toLowerCase();
+  const salt = new TextEncoder().encode(`tessera_auth_salt_v1:${normalizedEmail}`);
+  const passwordBytes = new TextEncoder().encode(password);
+
+  let masterPrf: Uint8Array;
+  if (typeof globalThis !== 'undefined' && globalThis.crypto?.subtle) {
+    try {
+      const key = await globalThis.crypto.subtle.importKey(
+        'raw',
+        passwordBytes,
+        { name: 'PBKDF2' },
+        false,
+        ['deriveBits'],
+      );
+      const bits = await globalThis.crypto.subtle.deriveBits(
+        {
+          name: 'PBKDF2',
+          salt,
+          iterations,
+          hash: 'SHA-256',
+        },
+        key,
+        256,
+      );
+      masterPrf = new Uint8Array(bits);
+    } catch {
+      masterPrf = pbkdf2(sha256, passwordBytes, salt, {
+        c: iterations,
+        dkLen: 32,
+      });
+    }
+  } else {
+    masterPrf = pbkdf2(sha256, passwordBytes, salt, {
+      c: iterations,
+      dkLen: 32,
+    });
+  }
+
+  const authInfo = new TextEncoder().encode('tessera-v1-auth-key');
+  const encInfo = new TextEncoder().encode('tessera-v1-encryption-key');
+
+  const authKey = hkdf(sha256, masterPrf, salt, authInfo, 32);
+  const encKey = hkdf(sha256, masterPrf, salt, encInfo, 32);
+
+  const authKeyHash = uint8ArrayToHex(sha256(authKey));
+
+  return {
+    authKey,
+    encKey,
+    authKeyHash,
+  };
+};
+
+/**
  * Wraps (encrypts) the local 32-byte Master Key using the password-derived Encryption Key (encKey).
  */
 export const wrapMasterKey = (

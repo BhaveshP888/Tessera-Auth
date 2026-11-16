@@ -15,6 +15,7 @@ import {
   uint8ArrayToBase64,
   unsealRecord,
   deriveAuthAndEncryptionKeys,
+  deriveAuthAndEncryptionKeysAsync,
   wrapMasterKey,
   unwrapMasterKey,
 } from '../crypto/index.js';
@@ -779,7 +780,7 @@ export class LocalStoreEngine {
     }
 
     try {
-      const { authKeyHash, encKey } = deriveAuthAndEncryptionKeys(email, password, pbkdf2Rounds);
+      const { authKeyHash, encKey } = await deriveAuthAndEncryptionKeysAsync(email, password, pbkdf2Rounds);
       const envelope = wrapMasterKey(this.masterKey, encKey);
 
       const fetchFn = (this.relayTransport as any).fetchFn || globalThis.fetch;
@@ -837,7 +838,7 @@ export class LocalStoreEngine {
     }
 
     try {
-      const { authKeyHash, encKey } = deriveAuthAndEncryptionKeys(email, password, pbkdf2Rounds);
+      const { authKeyHash, encKey } = await deriveAuthAndEncryptionKeysAsync(email, password, pbkdf2Rounds);
       const fetchFn = (this.relayTransport as any).fetchFn || globalThis.fetch;
 
       const res = await fetchFn(`${serverUrl}/api/auth/login`, {
@@ -922,7 +923,7 @@ export class LocalStoreEngine {
       }
 
       const data = await res.json();
-      const { encKey } = deriveAuthAndEncryptionKeys(email, password, pbkdf2Rounds);
+      const { encKey } = await deriveAuthAndEncryptionKeysAsync(email, password, pbkdf2Rounds);
 
       if (data.wrappedMasterKey && data.wrappedMasterKeyNonce) {
         const unwrapRes = unwrapMasterKey(data.wrappedMasterKey, data.wrappedMasterKeyNonce, encKey);
