@@ -2,6 +2,11 @@
   "version": 2,
   "buildCommand": "bun run vercel-build",
   "outputDirectory": "dist",
+  "functions": {
+    "api/**": {
+      "includeFiles": "server/dist/**"
+    }
+  },
   "rewrites": [
     {
       "source": "/api",
