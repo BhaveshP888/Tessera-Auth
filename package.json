@@ -17,11 +17,13 @@
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/nodemailer": "^8.0.2",
     "turbo": "^2.4.4",
-    "typescript": "^5.7.3",
-    "@types/node": "^22.13.4"
+    "typescript": "^5.7.3"
   },
   "dependencies": {
-    "@libsql/client": "^0.18.0"
+    "@libsql/client": "^0.18.0",
+    "nodemailer": "^10.6.0"
   }
 }
