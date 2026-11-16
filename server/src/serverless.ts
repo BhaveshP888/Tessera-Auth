@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
-import { buildServer } from '../server/dist/app.js';
-import { TesseraDatabase } from '../server/dist/db/sqlite.js';
+import { buildServer } from './app.js';
+import { TesseraDatabase } from './db/sqlite.js';
 
 let appPromise: Promise<FastifyInstance> | null = null;
 

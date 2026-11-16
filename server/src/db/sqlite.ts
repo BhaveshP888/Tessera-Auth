@@ -1,9 +1,11 @@
-import { createClient, type Client } from '@libsql/client';
-import { createClient as createWebClient } from '@libsql/client/web';
+import { createClient as createWebClient, type Client } from '@libsql/client/web';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import type { SyncDelta } from '@tessera/schemas';
+
+const require = createRequire(import.meta.url);
 
 export interface DbUser {
   id: string;
@@ -95,6 +97,7 @@ export class TesseraDatabase {
       }) as unknown as Client;
     } else {
       try {
+        const { createClient } = require('@libsql/client');
         this.client = createClient({
           url,
           authToken: token,
