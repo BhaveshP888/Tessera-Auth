@@ -61,45 +61,47 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
   });
   await app.register(sensible);
 
-  // Serve static web bundle if present (for single-container deployment)
-  const candidatePaths = [
-    process.env['WEB_DIST_PATH'],
-    path.resolve(process.cwd(), 'apps/web/dist'),
-    path.resolve(process.cwd(), '../apps/web/dist'),
-    path.resolve(process.cwd(), 'web-dist'),
-  ].filter(Boolean) as string[];
+  // Serve static web bundle if present (for single-container deployment; skipped in Vercel serverless)
+  if (!process.env['VERCEL']) {
+    const candidatePaths = [
+      process.env['WEB_DIST_PATH'],
+      path.resolve(process.cwd(), 'apps/web/dist'),
+      path.resolve(process.cwd(), '../apps/web/dist'),
+      path.resolve(process.cwd(), 'web-dist'),
+    ].filter(Boolean) as string[];
 
-  const staticRoot = candidatePaths.find((p) => fs.existsSync(p));
+    const staticRoot = candidatePaths.find((p) => fs.existsSync(p));
 
-  if (staticRoot) {
-    await app.register(fastifyStatic, {
-      root: staticRoot,
-      prefix: '/',
-      wildcard: true,
-      setHeaders: (res, filePath) => {
-        if (filePath.endsWith('index.html') || filePath.endsWith('.html')) {
-          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-          res.setHeader('Pragma', 'no-cache');
-          res.setHeader('Expires', '0');
-        } else if (filePath.includes('/assets/') || filePath.includes('\\assets\\')) {
-          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    if (staticRoot) {
+      await app.register(fastifyStatic, {
+        root: staticRoot,
+        prefix: '/',
+        wildcard: true,
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('index.html') || filePath.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+          } else if (filePath.includes('/assets/') || filePath.includes('\\assets\\')) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          }
+        },
+      });
+
+      app.setNotFoundHandler((request, reply) => {
+        const rawUrl = request.raw.url || '';
+        if (rawUrl.startsWith('/api')) {
+          return reply.status(404).send({ error: 'Endpoint not found' });
         }
-      },
-    });
+        // Never return index.html for missing scripts/stylesheets/assets
+        if (rawUrl.startsWith('/assets') || /\.(js|css|map|png|jpg|jpeg|svg|ico|woff2?|json)$/i.test(rawUrl)) {
+          return reply.status(404).send({ error: 'Asset not found' });
+        }
 
-    app.setNotFoundHandler((request, reply) => {
-      const rawUrl = request.raw.url || '';
-      if (rawUrl.startsWith('/api')) {
-        return reply.status(404).send({ error: 'Endpoint not found' });
-      }
-      // Never return index.html for missing scripts/stylesheets/assets
-      if (rawUrl.startsWith('/assets') || /\.(js|css|map|png|jpg|jpeg|svg|ico|woff2?|json)$/i.test(rawUrl)) {
-        return reply.status(404).send({ error: 'Asset not found' });
-      }
-
-      reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
-      return reply.sendFile('index.html');
-    });
+        reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+        return reply.sendFile('index.html');
+      });
+    }
   }
 
   // Health check

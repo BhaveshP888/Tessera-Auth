@@ -1,6 +1,7 @@
 import { createClient, type Client } from '@libsql/client';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import type { SyncDelta } from '@tessera/schemas';
 
 export interface DbUser {
@@ -63,7 +64,11 @@ export class TesseraDatabase {
       if (process.env['TURSO_DATABASE_URL']) {
         url = process.env['TURSO_DATABASE_URL'];
       } else {
-        const dataDir = process.env['DATA_DIR'] || path.resolve(process.cwd(), 'data');
+        const dataDir =
+          process.env['DATA_DIR'] ||
+          (process.env['VERCEL']
+            ? path.join(os.tmpdir(), 'tessera-data')
+            : path.resolve(process.cwd(), 'data'));
         if (!fs.existsSync(dataDir)) {
           try {
             fs.mkdirSync(dataDir, { recursive: true });
