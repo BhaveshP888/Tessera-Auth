@@ -54,6 +54,7 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
       if (!origin) return cb(null, true);
       const configuredOrigin = process.env['CORS_ORIGIN'];
       if (configuredOrigin) {
+        if (configuredOrigin === '*') return cb(null, true);
         const allowed = configuredOrigin.split(',').map((o) => o.trim().toLowerCase());
         if (allowed.includes(origin.toLowerCase())) return cb(null, true);
       }
@@ -64,7 +65,9 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
         lower.startsWith('http://127.0.0.1:') ||
         lower.startsWith('https://127.0.0.1:') ||
         lower.startsWith('chrome-extension://') ||
-        lower.startsWith('moz-extension://')
+        lower.startsWith('moz-extension://') ||
+        lower.endsWith('.vercel.app') ||
+        Boolean(process.env['VERCEL'])
       ) {
         return cb(null, true);
       }

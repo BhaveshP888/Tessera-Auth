@@ -93411,12 +93411,14 @@ var buildServer = async (options = {}) => {
         return cb(null, true);
       const configuredOrigin = process.env["CORS_ORIGIN"];
       if (configuredOrigin) {
+        if (configuredOrigin === "*")
+          return cb(null, true);
         const allowed = configuredOrigin.split(",").map((o) => o.trim().toLowerCase());
         if (allowed.includes(origin.toLowerCase()))
           return cb(null, true);
       }
       const lower = origin.toLowerCase();
-      if (lower.startsWith("http://localhost:") || lower.startsWith("https://localhost:") || lower.startsWith("http://127.0.0.1:") || lower.startsWith("https://127.0.0.1:") || lower.startsWith("chrome-extension://") || lower.startsWith("moz-extension://")) {
+      if (lower.startsWith("http://localhost:") || lower.startsWith("https://localhost:") || lower.startsWith("http://127.0.0.1:") || lower.startsWith("https://127.0.0.1:") || lower.startsWith("chrome-extension://") || lower.startsWith("moz-extension://") || lower.endsWith(".vercel.app") || Boolean(process.env["VERCEL"])) {
         return cb(null, true);
       }
       return cb(new Error("Not allowed by CORS policy"), false);
