@@ -75,52 +75,64 @@ export const registerAuthRoutes = (app: FastifyInstance, db: TesseraDatabase): v
 
   // 0. Send Email Verification OTP
   app.post('/api/auth/register/send-otp', async (request, reply) => {
-    const parsed = SendOtpRequestSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.status(400).send({ error: parsed.error.message });
-    }
-
-    const { email, purpose } = parsed.data;
-
-    // Check existing email
-    const existing = await db.getUserByEmail(email);
-    if (existing) {
-      return reply.status(409).send({ error: 'An account with this email already exists.' });
-    }
-
-    // Rate-limit resend cooldown (60 seconds)
-    const existingOtp = await db.getEmailOtp(email);
-    if (existingOtp) {
-      const elapsedMs = Date.now() - new Date(existingOtp.last_sent_at).getTime();
-      const cooldownMs = 60 * 1000;
-      if (elapsedMs < cooldownMs) {
-        const remainingSec = Math.ceil((cooldownMs - elapsedMs) / 1000);
-        return reply.status(429).send({
-          error: `Please wait ${remainingSec} seconds before requesting another verification code.`,
-        });
+    try {
+      const parsed = SendOtpRequestSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: parsed.error.message });
       }
+
+      const { email, purpose } = parsed.data;
+
+      // Check existing email
+      const existing = await db.getUserByEmail(email);
+      if (existing) {
+        return reply.status(409).send({ error: 'An account with this email already exists.' });
+      }
+
+      // Rate-limit resend cooldown (60 seconds)
+      const existingOtp = await db.getEmailOtp(email);
+      if (existingOtp) {
+        const elapsedMs = Date.now() - new Date(existingOtp.last_sent_at).getTime();
+        const cooldownMs = 60 * 1000;
+        if (elapsedMs < cooldownMs) {
+          const remainingSec = Math.ceil((cooldownMs - elapsedMs) / 1000);
+          return reply.status(429).send({
+            error: `Please wait ${remainingSec} seconds before requesting another verification code.`,
+          });
+        }
+      }
+
+      // Generate cryptographically secure 6-digit numeric code (100000 - 999999)
+      const code = crypto.randomInt(100000, 1000000).toString();
+      const otpCodeHash = crypto.createHash('sha256').update(code).digest('hex');
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+      await db.upsertEmailOtp(email, otpCodeHash, expiresAt);
+
+      const mailRes = await sendVerificationEmail({
+        to: email,
+        code,
+        expiresInMinutes: 10,
+        purpose,
+      });
+
+      if (!mailRes.success) {
+        return reply.status(500).send({ error: mailRes.error || 'Failed to dispatch verification email.' });
+      }
+
+      return reply.send({
+        success: true,
+        message: 'Verification code sent.',
+        expiresIn: 600,
+        ...(mailRes.devOtp ? { devOtp: mailRes.devOtp } : {}),
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[Send OTP Error]:', message);
+      return reply.status(500).send({
+        error: `Authentication service error: ${message}`,
+      });
     }
-
-    // Generate cryptographically secure 6-digit numeric code (100000 - 999999)
-    const code = crypto.randomInt(100000, 1000000).toString();
-    const otpCodeHash = crypto.createHash('sha256').update(code).digest('hex');
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-
-    await db.upsertEmailOtp(email, otpCodeHash, expiresAt);
-
-    const mailRes = await sendVerificationEmail({
-      to: email,
-      code,
-      expiresInMinutes: 10,
-      purpose,
-    });
-
-    return reply.send({
-      success: true,
-      message: 'Verification code sent.',
-      expiresIn: 600,
-      ...(mailRes.devOtp ? { devOtp: mailRes.devOtp } : {}),
-    });
   });
 
   // 1. Register

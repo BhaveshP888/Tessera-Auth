@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "npm run vercel-build",
+  "buildCommand": "bun run vercel-build",
   "outputDirectory": "dist",
   "rewrites": [
     {

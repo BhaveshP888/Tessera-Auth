@@ -36,6 +36,18 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
     logger: false,
   });
 
+  app.setErrorHandler((error: unknown, request, reply) => {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const rawStatusCode = typeof (error as { statusCode?: unknown })?.statusCode === 'number'
+      ? (error as { statusCode: number }).statusCode
+      : undefined;
+    const statusCode = rawStatusCode && rawStatusCode >= 400 && rawStatusCode < 600 ? rawStatusCode : 500;
+    console.error(`[Fastify Route Error] [${request.method} ${request.url}]:`, err.message);
+    reply.status(statusCode).send({
+      error: err.message || 'Internal Server Error',
+    });
+  });
+
 
   await app.register(cors as unknown as Parameters<typeof app.register>[0], {
     origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
