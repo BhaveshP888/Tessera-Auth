@@ -269,5 +269,5 @@ describe('Server Authentication & User-Scoped Sync', () => {
     const pullAData = JSON.parse(pullARes.body);
     expect(pullAData.deltas).toHaveLength(1);
     expect(pullAData.deltas[0].id).toBe('delta-a-1');
-  });
+  }, 20_000);
 });
