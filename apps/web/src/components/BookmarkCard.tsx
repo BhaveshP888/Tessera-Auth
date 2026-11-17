@@ -28,7 +28,7 @@ export interface BookmarkCardProps {
   isCompact?: boolean;
 }
 
-export const BookmarkCard: React.FC<BookmarkCardProps> = (props) => {
+const BookmarkCardComponent: React.FC<BookmarkCardProps> = (props) => {
   const storeCollections = useLibraryStore((s) => s.collections);
   const storeToggleFavorite = useLibraryStore((s) => s.toggleFavorite);
   const storeTogglePin = useLibraryStore((s) => s.togglePin);
@@ -549,3 +549,5 @@ export const BookmarkCard: React.FC<BookmarkCardProps> = (props) => {
     </div>
   );
 };
+
+export const BookmarkCard = React.memo(BookmarkCardComponent);

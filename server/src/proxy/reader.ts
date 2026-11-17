@@ -468,15 +468,51 @@ export const fetchPrivacyReaderMetadata = async (
 
 export interface IUrlMetadataResolver {
   resolve(rawUrl: string): Promise<{ data: PageMetadata | null; error: string | null }>;
+  clearCache(): void;
+}
+
+interface MetadataCacheEntry {
+  data: PageMetadata | null;
+  error: string | null;
+  timestamp: number;
 }
 
 /**
  * Deep module encapsulating URL sanitization, SSRF protection,
- * and OpenGraph scraping behind a single resolve() seam.
+ * and OpenGraph scraping behind a single resolve() seam with LRU caching.
  */
 export class UrlMetadataResolver implements IUrlMetadataResolver {
+  private cache = new Map<string, MetadataCacheEntry>();
+  private maxCacheSize = 300;
+  private ttlMs = 1000 * 60 * 60 * 2; // 2 hours
+
   public async resolve(rawUrl: string): Promise<{ data: PageMetadata | null; error: string | null }> {
-    return fetchPrivacyReaderMetadata(rawUrl);
+    const key = rawUrl.trim().toLowerCase();
+    const cached = this.cache.get(key);
+    const now = Date.now();
+
+    if (cached && now - cached.timestamp < this.ttlMs) {
+      return { data: cached.data, error: cached.error };
+    }
+
+    const result = await fetchPrivacyReaderMetadata(rawUrl);
+
+    // Evict oldest if limit reached
+    if (this.cache.size >= this.maxCacheSize) {
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey) this.cache.delete(firstKey);
+    }
+
+    // Cache successful extractions
+    if (result.data) {
+      this.cache.set(key, { data: result.data, error: result.error, timestamp: now });
+    }
+
+    return result;
+  }
+
+  public clearCache(): void {
+    this.cache.clear();
   }
 }
 

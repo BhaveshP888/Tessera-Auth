@@ -192,6 +192,7 @@ export class LocalStoreEngine {
 
   public readonly vaultSession = new VaultSessionManager();
   private subscribers = new Set<() => void>();
+  private lastPersistedRef = new Map<string, unknown>();
 
   constructor(options: LocalStoreEngineOptions = {}) {
     this.storage =
@@ -696,7 +697,11 @@ export class LocalStoreEngine {
   }
 
   private persist(key: string, data: unknown): void {
+    if (this.lastPersistedRef.get(key) === data) {
+      return;
+    }
     this.storage.setItem(`${this.prefix}${key}`, JSON.stringify(data));
+    this.lastPersistedRef.set(key, data);
   }
 
   private notify(): void {

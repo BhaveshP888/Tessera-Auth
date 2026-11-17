@@ -85010,8 +85010,29 @@ var fetchPrivacyReaderMetadata = async (rawUrl) => {
 };
 
 class UrlMetadataResolver {
+  cache = new Map;
+  maxCacheSize = 300;
+  ttlMs = 1000 * 60 * 60 * 2;
   async resolve(rawUrl) {
-    return fetchPrivacyReaderMetadata(rawUrl);
+    const key = rawUrl.trim().toLowerCase();
+    const cached = this.cache.get(key);
+    const now = Date.now();
+    if (cached && now - cached.timestamp < this.ttlMs) {
+      return { data: cached.data, error: cached.error };
+    }
+    const result = await fetchPrivacyReaderMetadata(rawUrl);
+    if (this.cache.size >= this.maxCacheSize) {
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey)
+        this.cache.delete(firstKey);
+    }
+    if (result.data) {
+      this.cache.set(key, { data: result.data, error: result.error, timestamp: now });
+    }
+    return result;
+  }
+  clearCache() {
+    this.cache.clear();
   }
 }
 var urlMetadataResolver = new UrlMetadataResolver;
@@ -93562,6 +93583,7 @@ var buildServer = async (options = {}) => {
     if (error || !data) {
       return reply.status(400).send({ error: error || "Failed to fetch metadata" });
     }
+    reply.header("Cache-Control", "public, max-age=86400, stale-while-revalidate=3600");
     return { data, metadata: data };
   };
   app.get("/api/proxy/metadata", async (request, reply) => {

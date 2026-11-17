@@ -241,7 +241,10 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
   // Privacy Reader Proxy: Metadata & OG scraper (supports GET & POST)
   const handleMetadataProxy = async (
     rawTargetUrl: string | undefined,
-    reply: { status: (code: number) => { send: (payload: unknown) => unknown } }
+    reply: {
+      status: (code: number) => { send: (payload: unknown) => unknown };
+      header: (key: string, val: string) => unknown;
+    }
   ) => {
     if (!rawTargetUrl || !rawTargetUrl.trim()) {
       return reply.status(400).send({ error: 'Parameter "url" is required' });
@@ -252,6 +255,7 @@ export const buildServer = async (options: BuildServerOptions = {}) => {
       return reply.status(400).send({ error: error || 'Failed to fetch metadata' });
     }
 
+    reply.header('Cache-Control', 'public, max-age=86400, stale-while-revalidate=3600');
     return { data, metadata: data };
   };
 
